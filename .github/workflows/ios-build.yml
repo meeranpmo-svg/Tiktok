@@ -49,13 +49,15 @@ jobs:
           pod --version
 
       - name: Install dependencies
+        working-directory: flutter
         run: flutter pub get
 
       - name: Analyze
+        working-directory: flutter
         run: flutter analyze
 
       - name: Pod install
-        working-directory: ios
+        working-directory: flutter/ios
         run: pod install --repo-update
 
       - name: Decode App Store Connect API key
@@ -68,6 +70,7 @@ jobs:
       # Xcode 14+ supports automatic signing with API keys, no certs needed locally.
       - name: Build IPA (signed)
         if: github.event.inputs.upload == 'true' || startsWith(github.ref, 'refs/tags/v')
+        working-directory: flutter
         run: |
           flutter build ipa --release \
             --export-options-plist=ios/exportOptions.plist
@@ -78,6 +81,7 @@ jobs:
       # Fallback: unsigned build for verification only
       - name: Build IPA (no codesign — verification only)
         if: github.event.inputs.upload != 'true' && !startsWith(github.ref, 'refs/tags/v')
+        working-directory: flutter
         run: flutter build ios --release --no-codesign
 
       - name: Upload IPA artifact
@@ -85,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
-          path: build/ios/ipa/*.ipa
+          path: flutter/build/ios/ipa/*.ipa
           retention-days: 14
 
       - name: Upload to TestFlight
@@ -93,6 +97,6 @@ jobs:
         run: |
           xcrun altool --upload-app \
             --type ios \
-            --file build/ios/ipa/*.ipa \
+            --file flutter/build/ios/ipa/*.ipa \
             --apiKey ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
             --apiIssuer ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

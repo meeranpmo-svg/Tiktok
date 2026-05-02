@@ -1,0 +1,25 @@
+{
+  "name": "Tenth Tone",
+  "short_name": "Tenth Tone",
+  "description": "تطبيق تواصل اجتماعي قائم على مشاركة مقاطع الفيديو القصيرة",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/index.html#/home",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#6c2bd9",
+  "categories": ["social", "entertainment", "video"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "إنشاء فيديو", "short_name": "إنشاء", "url": "/index.html#/create", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "البريد", "short_name": "البريد", "url": "/index.html#/inbox", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "البروفايل", "short_name": "البروفايل", "url": "/index.html#/profile", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "prefer_related_applications": false
+}

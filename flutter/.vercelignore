@@ -1,0 +1,17 @@
+# Source files Vercel doesn't need (it serves build/web only)
+lib/
+test/
+android/
+ios/
+linux/
+macos/
+windows/
+.dart_tool/
+.idea/
+.metadata
+analysis_options.yaml
+pubspec.lock
+.git/
+.github/
+codemagic.yaml
+*.md

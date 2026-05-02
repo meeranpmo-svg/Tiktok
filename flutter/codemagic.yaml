@@ -1,0 +1,90 @@
+# Codemagic CI — alternative to GitHub Actions for Flutter iOS builds.
+# https://docs.codemagic.io/yaml/yaml-getting-started/
+#
+# Add this file to the repo, connect the repo on codemagic.io, then add the
+# following environment variables in Codemagic UI (Settings → Environment variables):
+#   APP_STORE_CONNECT_PRIVATE_KEY    — content of the .p8 file (Codemagic decrypts)
+#   APP_STORE_CONNECT_KEY_IDENTIFIER — Key ID
+#   APP_STORE_CONNECT_ISSUER_ID      — Issuer ID
+#   APPLE_TEAM_ID                    — your Apple Developer Team ID
+#   APP_STORE_APP_ID                 — App Store Connect numeric app ID (after you create the app entry)
+#
+# Codemagic free tier: 500 build minutes / month — plenty for 10–15 iOS builds.
+
+workflows:
+  ios-testflight:
+    name: iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: tenth_tone_key   # Set up once in Codemagic UI under Integrations
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.tenthtone.tenthTone
+      vars:
+        APP_STORE_APP_ID: $APP_STORE_APP_ID
+        BUNDLE_ID: 'com.tenthtone.tenthTone'
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    triggering:
+      events:
+        - push
+        - tag
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: true
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+
+    scripts:
+      - name: Install Flutter dependencies
+        script: |
+          flutter pub get
+
+      - name: Flutter analyze
+        script: |
+          flutter analyze --no-fatal-warnings
+
+      - name: Pod install
+        script: |
+          cd ios && pod install --repo-update
+
+      - name: Set build number
+        script: |
+          # Auto-increment based on TestFlight latest
+          cd $CM_BUILD_DIR
+          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID") + 1))
+          echo "Using build number $BUILD_NUMBER"
+          sed -i.bak "s/build-number: [0-9]*/build-number: $BUILD_NUMBER/" pubspec.yaml || true
+
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-name=1.0.0 \
+            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID") + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - Internal Testers     # Create this group in App Store Connect first
+        submit_to_app_store: false   # Flip to true once you're ready for production review
+
+      email:
+        recipients:
+          - your-email@example.com   # Edit this
+        notify:
+          success: true
+          failure: true

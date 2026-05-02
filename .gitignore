@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.log
+
+# Node
+node_modules/
+.env
+.env.local
+
+# Flutter
+flutter/.dart_tool/
+flutter/.flutter-plugins
+flutter/.flutter-plugins-dependencies
+flutter/.packages
+flutter/.pub-cache/
+flutter/.pub/
+flutter/build/
+flutter/.metadata
+flutter/ios/Pods/
+flutter/ios/.symlinks/
+flutter/ios/Flutter/Flutter.framework
+flutter/ios/Flutter/App.framework
+flutter/ios/Flutter/Generated.xcconfig
+flutter/ios/Flutter/flutter_export_environment.sh
+flutter/ios/Runner.xcworkspace/xcuserdata/
+flutter/android/.gradle/
+flutter/android/build/
+flutter/android/local.properties
+flutter/android/app/debug
+flutter/android/app/profile
+flutter/android/app/release
+
+# iOS code-signing — NEVER commit
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+
+# Web build artifacts (we DO commit flutter/build_web/ for Vercel deploy though)
+web/dist/

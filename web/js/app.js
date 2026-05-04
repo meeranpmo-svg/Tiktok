@@ -19,6 +19,7 @@
     { p: /^\/edit-video$/, v: () => Views.editVideo() },
     { p: /^\/publish$/, v: () => Views.publish() },
     { p: /^\/inbox$/, v: () => Views.inbox() },
+    { p: /^\/chat-new\/(group|dm)$/, v: (q, m) => Views.chatNew({ id: m[1] }) },
     { p: /^\/chat\/(.+)$/, v: (q, m) => Views.chat({ id: m[1] }) },
     { p: /^\/profile$/, v: () => Views.profile() },
     { p: /^\/profile\/edit$/, v: () => Views.editProfile() },

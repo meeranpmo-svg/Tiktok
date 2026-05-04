@@ -1652,7 +1652,17 @@
     section('المحتوى والعرض', [
       { icon: 'globe', label: 'اللغة', right: el('span', { class: 'muted' }, 'العربية') },
       { icon: 'eye', label: 'إعدادات النشاط' },
-      { icon: 'map', label: 'مشاركة الموقع', right: el('div', { class: 'toggle on', onclick: e => { e.stopPropagation(); e.currentTarget.classList.toggle('on'); } }) },
+      { icon: 'map', label: 'خريطة الأصدقاء', onclick: () => go('/map') },
+      { icon: 'map', label: 'مشاركة موقعي', right: el('div', { class: 'toggle on', onclick: async e => {
+        e.stopPropagation();
+        const tg = e.currentTarget;
+        tg.classList.toggle('on');
+        const enabled = tg.classList.contains('on');
+        if (window.API) {
+          try { await window.API.setLocationVisibility(enabled ? 'friends' : 'none'); toast(enabled ? 'تمت مشاركة موقعك مع متابَعيك' : 'تم إيقاف المشاركة'); }
+          catch (err) { tg.classList.toggle('on'); toast('تعذر التحديث'); }
+        }
+      } }) },
     ]);
     section('الدعم والقانوني', [
       { icon: 'flag', label: 'الإبلاغ عن مشكلة' },

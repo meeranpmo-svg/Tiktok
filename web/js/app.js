@@ -2,6 +2,8 @@
 (function () {
   const app = document.getElementById('app');
 
+  const PUBLIC_PATHS = ['/', '/login', '/register', '/otp', '/forgot', '/reset'];
+
   const routes = [
     { p: /^\/?$/, v: () => Views.splash() },
     { p: /^\/login$/, v: () => Views.login() },
@@ -44,8 +46,28 @@
     return { path, q };
   }
 
-  function render() {
+  let sessionChecked = false;
+  let session = null;
+
+  async function render() {
     const { path, q } = parseHash();
+
+    // Auth guard: gate non-public paths until we know whether the user is signed in
+    if (!sessionChecked) {
+      try { session = await window.SB.getSession(); } catch (e) { session = null; }
+      sessionChecked = true;
+    }
+
+    if (!session && !PUBLIC_PATHS.includes(path)) {
+      location.hash = '#/login';
+      return;
+    }
+    // If already signed-in and at the splash → skip straight to home
+    if (session && path === '/') {
+      location.hash = '#/home';
+      return;
+    }
+
     for (const r of routes) {
       const m = path.match(r.p);
       if (m) {
@@ -62,6 +84,15 @@
       }
     }
     location.hash = '#/';
+  }
+
+  // Listen for sign-in / sign-out events from Supabase to keep `session` fresh
+  if (window.SB) {
+    window.SB.onAuthChange((event, sess) => {
+      session = sess;
+      sessionChecked = true;
+      if (event === 'SIGNED_OUT') location.hash = '#/login';
+    });
   }
 
   window.addEventListener('hashchange', render);

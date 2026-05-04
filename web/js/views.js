@@ -46,19 +46,47 @@
       el('span'),
       el('a', { class: 'auth-link', onclick: () => go('/forgot') }, 'نسيت كلمة المرور؟'),
     ]));
-    root.appendChild(el('button', { class: 'btn btn-pill', onclick: () => {
+    const loginBtn = el('button', { class: 'btn btn-pill', onclick: async () => {
       if (!idIn.value || !passIn.value) {
         error.textContent = 'الرجاء إدخال جميع الحقول';
         error.hidden = false;
         return;
       }
-      go('/home');
-    } }, 'تسجيل الدخول'));
+      error.hidden = true;
+      loginBtn.disabled = true;
+      loginBtn.textContent = 'جاري تسجيل الدخول...';
+      try {
+        const isEmail = /.+@.+\..+/.test(idIn.value);
+        const params = { password: passIn.value };
+        if (isEmail) params.email = idIn.value.trim();
+        else params.phone = idIn.value.replace(/\s/g, '');
+        await window.SB.signIn(params);
+        go('/home');
+      } catch (e) {
+        error.textContent = mapAuthError(e);
+        error.hidden = false;
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'تسجيل الدخول';
+      }
+    } }, 'تسجيل الدخول');
+    root.appendChild(loginBtn);
     root.appendChild(el('div', { class: 'auth-actions text-center' }, [
       el('p', { class: 'muted' }, [document.createTextNode('ليس لديك حساب؟ '), el('a', { class: 'auth-link', onclick: () => go('/register') }, 'إنشاء حساب')]),
     ]));
     return root;
   };
+
+  // Map Supabase error messages to Arabic
+  function mapAuthError(e) {
+    const m = (e && e.message) || '';
+    if (/Invalid login credentials/i.test(m)) return 'بيانات الدخول غير صحيحة';
+    if (/Email not confirmed/i.test(m)) return 'البريد لم يُفعَّل بعد — تحقق من بريدك';
+    if (/User already registered/i.test(m)) return 'البريد مسجَّل مسبقًا';
+    if (/Password should be at least/i.test(m)) return 'كلمة المرور قصيرة جدًا';
+    if (/rate limit|too many/i.test(m)) return 'محاولات كثيرة — حاول لاحقًا';
+    if (/network|fetch/i.test(m)) return 'تعذر الاتصال — تحقق من الإنترنت';
+    return m || 'حدث خطأ، حاول مجددًا';
+  }
 
   // ===== Register =====
   V.register = () => {
@@ -77,14 +105,33 @@
     wrap.appendChild(el('p', { class: 'auth-subtitle' }, 'بإنشاء حساب أنت توافق على الشروط وسياسة الخصوصية.'));
     wrap.appendChild(error);
     Object.values(fields).forEach(f => wrap.appendChild(el('div', { class: 'input-wrap' }, [f])));
-    wrap.appendChild(el('button', { class: 'btn btn-pill', onclick: () => {
+    const regBtn = el('button', { class: 'btn btn-pill', onclick: async () => {
       const errs = [];
-      if (!/.+@.+\..+/.test(fields.email.value) && !/^[\d\s+()-]{8,}$/.test(fields.phone.value)) errs.push('أدخل بريدًا أو رقم هاتف صحيح');
+      const hasEmail = /.+@.+\..+/.test(fields.email.value);
+      const hasPhone = /^[\d\s+()-]{8,}$/.test(fields.phone.value);
+      if (!hasEmail && !hasPhone) errs.push('أدخل بريدًا أو رقم هاتف صحيح');
       if (fields.pass.value.length < 8) errs.push('كلمة المرور 8 أحرف على الأقل');
       if (fields.pass.value !== fields.confirm.value) errs.push('كلمتا المرور غير متطابقتين');
       if (errs.length) { error.textContent = errs[0]; error.hidden = false; return; }
-      go('/otp');
-    } }, 'تسجيل'));
+      error.hidden = true;
+      regBtn.disabled = true;
+      regBtn.textContent = 'جاري إنشاء الحساب...';
+      try {
+        const params = { password: fields.pass.value };
+        if (hasEmail) params.email = fields.email.value.trim();
+        if (hasPhone) params.phone = fields.phone.value.replace(/\s/g, '');
+        await window.SB.signUp(params);
+        sessionStorage.setItem('tt-pending-otp', JSON.stringify({ email: params.email, phone: params.phone }));
+        toast('تم إرسال رمز التحقق');
+        go('/otp');
+      } catch (e) {
+        error.textContent = mapAuthError(e);
+        error.hidden = false;
+        regBtn.disabled = false;
+        regBtn.textContent = 'تسجيل';
+      }
+    } }, 'تسجيل');
+    wrap.appendChild(regBtn);
     root.appendChild(wrap);
     return root;
   };
@@ -114,11 +161,39 @@
       row.appendChild(inp);
     }
     wrap.appendChild(row);
+    const otpError = el('div', { class: 'error-box', hidden: true, style: { marginTop: '12px' } });
+    wrap.appendChild(otpError);
+    const pending = JSON.parse(sessionStorage.getItem('tt-pending-otp') || '{}');
     wrap.appendChild(el('div', { class: 'otp-resend' }, [
       document.createTextNode('لم يصلك الرمز؟ '),
-      el('a', { class: 'auth-link', onclick: () => toast('تم إرسال الرمز مرة أخرى') }, 'إعادة الإرسال'),
+      el('a', { class: 'auth-link', onclick: async () => {
+        try {
+          if (pending.email) await window.SB.signInWithOtp({ email: pending.email });
+          else if (pending.phone) await window.SB.signInWithOtp({ phone: pending.phone });
+          toast('تم إرسال الرمز مرة أخرى');
+        } catch (e) { otpError.textContent = mapAuthError(e); otpError.hidden = false; }
+      } }, 'إعادة الإرسال'),
     ]));
-    const verifyBtn = el('button', { class: 'btn btn-pill', disabled: true, style: { marginTop: '24px' }, onclick: () => go('/home') }, 'تحقق ومتابعة');
+    const verifyBtn = el('button', { class: 'btn btn-pill', disabled: true, style: { marginTop: '24px' }, onclick: async () => {
+      const code = inputs.map(x => x.value).join('');
+      if (code.length !== 6) return;
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = 'جاري التحقق...';
+      try {
+        const params = { token: code };
+        if (pending.email) { params.email = pending.email; params.type = 'email'; }
+        else if (pending.phone) { params.phone = pending.phone; params.type = 'sms'; }
+        else { otpError.textContent = 'انتهت الجلسة — أعد التسجيل'; otpError.hidden = false; verifyBtn.disabled = false; verifyBtn.textContent = 'تحقق ومتابعة'; return; }
+        await window.SB.verifyOtp(params);
+        sessionStorage.removeItem('tt-pending-otp');
+        go('/home');
+      } catch (e) {
+        otpError.textContent = mapAuthError(e);
+        otpError.hidden = false;
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'تحقق ومتابعة';
+      }
+    } }, 'تحقق ومتابعة');
     wrap.appendChild(verifyBtn);
     root.appendChild(wrap);
     return root;
@@ -132,13 +207,26 @@
     const wrap = el('div', { style: { padding: '14px 4px' } });
     wrap.appendChild(el('h2', { class: 'auth-title' }, 'نسيت كلمة المرور؟'));
     wrap.appendChild(el('p', { class: 'auth-subtitle' }, 'سنرسل لك رابط/رمز إعادة تعيين'));
-    const inp = el('input', { class: 'input', placeholder: 'البريد الإلكتروني أو رقم الهاتف' });
+    const inp = el('input', { class: 'input', placeholder: 'البريد الإلكتروني' });
+    const errBox = el('div', { class: 'error-box', hidden: true });
+    wrap.appendChild(errBox);
     wrap.appendChild(el('div', { class: 'input-wrap' }, [inp]));
-    wrap.appendChild(el('button', { class: 'btn btn-pill', onclick: () => {
+    const fbtn = el('button', { class: 'btn btn-pill', onclick: async () => {
       if (!inp.value) return;
-      toast('تم إرسال الرمز');
-      go('/reset');
-    } }, 'إرسال الرمز'));
+      fbtn.disabled = true;
+      fbtn.textContent = 'جاري الإرسال...';
+      try {
+        await window.SB.resetPassword(inp.value.trim());
+        toast('تم إرسال رابط إعادة التعيين إلى بريدك');
+        setTimeout(() => go('/login'), 1500);
+      } catch (e) {
+        errBox.textContent = mapAuthError(e);
+        errBox.hidden = false;
+        fbtn.disabled = false;
+        fbtn.textContent = 'إرسال الرابط';
+      }
+    } }, 'إرسال الرابط');
+    wrap.appendChild(fbtn);
     root.appendChild(wrap);
     return root;
   };
@@ -157,12 +245,24 @@
     wrap.appendChild(err);
     wrap.appendChild(el('div', { class: 'input-wrap' }, [p1]));
     wrap.appendChild(el('div', { class: 'input-wrap' }, [p2]));
-    wrap.appendChild(el('button', { class: 'btn btn-pill', onclick: () => {
+    const resetBtn = el('button', { class: 'btn btn-pill', onclick: async () => {
       if (p1.value.length < 8) { err.textContent = 'كلمة المرور 8 أحرف على الأقل'; err.hidden = false; return; }
       if (p1.value !== p2.value) { err.textContent = 'كلمتا المرور غير متطابقتين'; err.hidden = false; return; }
-      toast('تم تحديث كلمة المرور');
-      go('/login');
-    } }, 'حفظ كلمة المرور'));
+      err.hidden = true;
+      resetBtn.disabled = true;
+      resetBtn.textContent = 'جاري الحفظ...';
+      try {
+        await window.SB.updatePassword(p1.value);
+        toast('تم تحديث كلمة المرور');
+        go('/home');
+      } catch (e) {
+        err.textContent = mapAuthError(e);
+        err.hidden = false;
+        resetBtn.disabled = false;
+        resetBtn.textContent = 'حفظ كلمة المرور';
+      }
+    } }, 'حفظ كلمة المرور');
+    wrap.appendChild(resetBtn);
     root.appendChild(wrap);
     return root;
   };
@@ -517,8 +617,32 @@
   // ===== Profile =====
   V.profile = () => {
     bottomNav('profile');
-    const u = DB.me;
-    return _renderProfile(u, true);
+    const root = _renderProfile(DB.me, true);
+    // Async: load real profile from Supabase, swap in
+    (async () => {
+      try {
+        const user = await window.SB.getUser();
+        if (!user) return;
+        const p = await window.SB.getProfile(user.id);
+        if (!p) return;
+        const real = {
+          id: 'me',
+          name: p.name || 'أنت',
+          handle: p.handle ? '@' + p.handle : '@me',
+          avatar: p.avatar_url || DB.me.avatar,
+          bio: p.bio || '',
+          followers: p.followers_count || 0,
+          following: p.following_count || 0,
+          likes: p.likes_count || 0,
+          verified: p.verified,
+        };
+        Object.assign(DB.me, real);
+        // Re-render in place
+        const fresh = _renderProfile(DB.me, true);
+        root.replaceWith(fresh);
+      } catch (e) { console.warn('profile load:', e); }
+    })();
+    return root;
   };
   V.userProfile = (params) => {
     hideNav();
@@ -574,22 +698,58 @@
     const root = el('section');
     root.appendChild(topBar({ title: 'تعديل البروفايل' }));
     const wrap = el('div', { style: { padding: '16px' } });
+    const avImg = Object.assign(document.createElement('img'), { src: u.avatar, style: 'width:100%;height:100%;object-fit:cover' });
+    const fileInput = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
+    let avatarFile = null;
+    fileInput.addEventListener('change', (e) => {
+      avatarFile = e.target.files[0];
+      if (avatarFile) avImg.src = URL.createObjectURL(avatarFile);
+    });
     wrap.appendChild(el('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '10px 0 18px' } }, [
-      el('div', { class: 'profile-avatar' }, [Object.assign(document.createElement('img'), { src: u.avatar })]),
-      el('button', { class: 'btn-ghost btn-sm' }, 'تغيير الصورة'),
+      el('div', { class: 'profile-avatar' }, [avImg]),
+      el('button', { class: 'btn-ghost btn-sm', onclick: () => fileInput.click() }, 'تغيير الصورة'),
+      fileInput,
     ]));
+    const inputs = {};
     [
-      { l: 'الاسم', v: u.name },
-      { l: 'اسم المستخدم', v: u.handle.replace('@', '') },
-      { l: 'النبذة', v: u.bio, type: 'textarea' },
+      { k: 'name', l: 'الاسم', v: u.name },
+      { k: 'handle', l: 'اسم المستخدم', v: u.handle.replace('@', '') },
+      { k: 'bio', l: 'النبذة', v: u.bio, type: 'textarea' },
     ].forEach(f => {
       const wrap2 = el('div', { class: 'input-wrap' });
       wrap2.appendChild(el('label', { class: 'input-label' }, f.l));
       const input = f.type === 'textarea' ? el('textarea', { class: 'input', value: f.v, rows: 3, style: { resize: 'none' } }) : el('input', { class: 'input', value: f.v });
       wrap2.appendChild(input);
       wrap.appendChild(wrap2);
+      inputs[f.k] = input;
     });
-    wrap.appendChild(el('button', { class: 'btn btn-pill', onclick: () => { toast('تم الحفظ'); go('/profile'); }, style: { marginTop: '14px' } }, 'حفظ التعديلات'));
+    const errBox = el('div', { class: 'error-box', hidden: true });
+    wrap.appendChild(errBox);
+    const saveBtn = el('button', { class: 'btn btn-pill', style: { marginTop: '14px' }, onclick: async () => {
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'جاري الحفظ...';
+      try {
+        const user = await window.SB.getUser();
+        if (!user) { go('/login'); return; }
+        const fields = {
+          name: inputs.name.value.trim().slice(0, 50),
+          handle: inputs.handle.value.trim().replace(/^@/, '').slice(0, 30),
+          bio: inputs.bio.value.trim().slice(0, 150),
+        };
+        if (avatarFile) {
+          fields.avatar_url = await window.SB.uploadAvatar(user.id, avatarFile);
+        }
+        await window.SB.updateProfile(user.id, fields);
+        toast('تم الحفظ');
+        go('/profile');
+      } catch (e) {
+        errBox.textContent = (e.message && /duplicate|unique/i.test(e.message)) ? 'اسم المستخدم محجوز' : (e.message || 'تعذر الحفظ');
+        errBox.hidden = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'حفظ التعديلات';
+      }
+    } }, 'حفظ التعديلات');
+    wrap.appendChild(saveBtn);
     root.appendChild(wrap);
     return root;
   };
@@ -936,7 +1096,7 @@
       { icon: 'globe', label: 'الشروط وسياسة الخصوصية' },
     ]);
     const logout = el('div', { class: 'settings-section' });
-    logout.appendChild(el('div', { class: 'settings-item', onclick: () => { go('/login'); toast('تم تسجيل الخروج'); } }, [
+    logout.appendChild(el('div', { class: 'settings-item', onclick: async () => { try { await window.SB.signOut(); } catch (e) {} go('/login'); toast('تم تسجيل الخروج'); } }, [
       el('span', { class: 'si-text', style: { color: 'var(--danger)', textAlign: 'center', fontWeight: 700 } }, 'تسجيل الخروج'),
     ]));
     root.appendChild(logout);

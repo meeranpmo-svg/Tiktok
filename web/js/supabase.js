@@ -1,0 +1,138 @@
+/* === Supabase client + auth helpers === */
+(function () {
+  const SUPABASE_URL = 'https://qnzgxihlrwanywndcmpf.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_dMa7Ce6Gml-NC4bCmbsC9Q_DR16xAdf';
+
+  // Load supabase-js from CDN dynamically (so the rest of the app keeps working
+  // even if the CDN is briefly down; we just fall back to mock data).
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  const ready = (async () => {
+    if (!window.supabase) {
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.46.1/dist/umd/supabase.min.js');
+      } catch (e) {
+        console.warn('Supabase SDK failed to load — falling back to mock auth.', e);
+        return null;
+      }
+    }
+    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: window.localStorage, storageKey: 'tt-auth' },
+    });
+    return client;
+  })();
+
+  // === Public API ===
+  const SB = {
+    ready,
+    async client() { return await ready; },
+
+    // ---------- Auth ----------
+    async signUp({ email, phone, password, name }) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const opts = { password, options: { data: { name: name || '' } } };
+      if (email) opts.email = email; else if (phone) opts.phone = phone;
+      const { data, error } = await c.auth.signUp(opts);
+      if (error) throw error;
+      return data;
+    },
+
+    async signIn({ email, phone, password }) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const params = { password };
+      if (email) params.email = email; else if (phone) params.phone = phone;
+      const { data, error } = await c.auth.signInWithPassword(params);
+      if (error) throw error;
+      return data;
+    },
+
+    async signInWithOtp({ email, phone }) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const params = email ? { email } : { phone };
+      const { data, error } = await c.auth.signInWithOtp(params);
+      if (error) throw error;
+      return data;
+    },
+
+    async verifyOtp({ email, phone, token, type = 'email' }) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const params = { token, type };
+      if (email) { params.email = email; params.type = type === 'sms' ? 'sms' : 'email'; }
+      else if (phone) { params.phone = phone; params.type = 'sms'; }
+      const { data, error } = await c.auth.verifyOtp(params);
+      if (error) throw error;
+      return data;
+    },
+
+    async resetPassword(email) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const redirectTo = `${location.origin}/#/reset`;
+      const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) throw error;
+    },
+
+    async updatePassword(newPassword) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const { data, error } = await c.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      return data;
+    },
+
+    async signOut() {
+      const c = await ready; if (!c) return;
+      await c.auth.signOut();
+    },
+
+    async getSession() {
+      const c = await ready; if (!c) return null;
+      const { data } = await c.auth.getSession();
+      return data.session;
+    },
+
+    async getUser() {
+      const c = await ready; if (!c) return null;
+      const { data } = await c.auth.getUser();
+      return data.user;
+    },
+
+    onAuthChange(cb) {
+      ready.then(c => { if (c) c.auth.onAuthStateChange((event, session) => cb(event, session)); });
+    },
+
+    // ---------- Profiles ----------
+    async getProfile(userId) {
+      const c = await ready; if (!c) return null;
+      const { data, error } = await c.from('profiles').select('*').eq('id', userId).single();
+      if (error && error.code !== 'PGRST116') throw error;
+      return data;
+    },
+
+    async updateProfile(userId, fields) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const { data, error } = await c.from('profiles').update(fields).eq('id', userId).select().single();
+      if (error) throw error;
+      return data;
+    },
+
+    // ---------- Storage ----------
+    async uploadAvatar(userId, file) {
+      const c = await ready; if (!c) throw new Error('SDK not loaded');
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const path = `${userId}/avatar-${Date.now()}.${ext}`;
+      const { error } = await c.storage.from('avatars').upload(path, file, { upsert: true, cacheControl: '3600' });
+      if (error) throw error;
+      const { data: pub } = c.storage.from('avatars').getPublicUrl(path);
+      return pub.publicUrl;
+    },
+  };
+
+  window.SB = SB;
+})();

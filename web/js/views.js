@@ -285,10 +285,12 @@
     const scroll = el('div', { class: 'feed-scroll' });
     root.appendChild(scroll);
 
-    // Adapt DB row to the shape the renderer expects
+    // Adapt DB row to the shape the renderer expects.
+    // Prefer the actual video file URL so the feed plays real video.
     const adapt = v => ({
       id: v.id,
-      bg: v.thumbnail || v.video_url || (DB.videos[0] && DB.videos[0].bg),
+      bg: v.video_url || v.thumbnail || (DB.videos[0] && DB.videos[0].bg),
+      poster: v.thumbnail || v.video_url || '',
       desc: v.description || '',
       music: v.music || 'الأصلي',
       likes: v.likes_count || 0,
@@ -327,8 +329,29 @@
     })();
 
     function renderItems() { list.forEach(v => renderItem(v)); }
+    function isVideoUrl(u) { return typeof u === 'string' && /\.(mp4|mov|webm|m4v)(\?|$)/i.test(u); }
     function renderItem(v) {
-      const item = el('div', { class: 'feed-item', style: { backgroundImage: `url(${v.bg})` } });
+      const isVideo = isVideoUrl(v.bg);
+      const item = el('div', { class: 'feed-item', style: isVideo ? {} : { backgroundImage: `url(${v.bg})` } });
+      if (isVideo) {
+        const video = Object.assign(document.createElement('video'), {
+          src: v.bg, autoplay: true, muted: true, loop: true, playsInline: true, preload: 'metadata',
+        });
+        video.setAttribute('playsinline', '');
+        video.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000';
+        item.appendChild(video);
+        // Tap to toggle play/pause + sound (first tap unmutes)
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.feed-actions') || e.target.closest('.feed-info')) return;
+          if (video.muted) { video.muted = false; return; }
+          video.paused ? video.play() : video.pause();
+        });
+        // Pause when scrolled away (basic IntersectionObserver)
+        const io = new IntersectionObserver(entries => {
+          entries.forEach(e => { if (e.isIntersecting) video.play().catch(() => {}); else video.pause(); });
+        }, { threshold: 0.6 });
+        io.observe(item);
+      }
 
       // Right info
       const info = el('div', { class: 'feed-info' }, [
@@ -437,13 +460,23 @@
     bottomNav('create');
     const root = el('section', { class: 'create-wrap' });
     root.appendChild(topBar({ title: 'إنشاء جديد', back: false, right: el('button', { class: 'icon-btn', html: icons.x, onclick: () => go('/home') }) }));
+
+    // Hidden file picker shared with the "upload" card
+    const fileInput = el('input', { type: 'file', accept: 'video/*,image/*', style: { display: 'none' } });
+    fileInput.addEventListener('change', e => {
+      const f = e.target.files[0]; if (!f) return;
+      window._ttPendingClip = f;
+      go('/publish');
+    });
+    root.appendChild(fileInput);
+
     [
-      { icon: 'rec', label: 'تسجيل فيديو', desc: 'استخدم الكاميرا لتصوير فيديو قصير', go: '/camera' },
-      { icon: 'up', label: 'رفع من الجهاز', desc: 'اختر فيديو من المعرض', go: '/upload' },
-      { icon: 'live', label: 'بث مباشر', desc: 'تواصل مع جمهورك مباشرة', go: '/live/start' },
-      { icon: 'template', label: 'قوالب جاهزة', desc: 'ابدأ من قالب وعدّله', go: '/camera' },
+      { icon: 'rec', label: 'تسجيل فيديو', desc: 'استخدم الكاميرا لتصوير فيديو قصير', action: () => go('/camera') },
+      { icon: 'up', label: 'رفع من الجهاز', desc: 'اختر فيديو أو صورة من المعرض', action: () => fileInput.click() },
+      { icon: 'live', label: 'بث مباشر', desc: 'تواصل مع جمهورك مباشرة', action: () => go('/live/start') },
+      { icon: 'template', label: 'قوالب جاهزة', desc: 'ابدأ من قالب وعدّله', action: () => go('/camera') },
     ].forEach(item => {
-      root.appendChild(el('div', { class: 'create-card', onclick: () => go(item.go) }, [
+      root.appendChild(el('div', { class: 'create-card', onclick: item.action }, [
         el('div', { class: 'create-icon ' + item.icon, html: item.icon === 'rec' ? icons.camera : item.icon === 'up' ? icons.upload : item.icon === 'live' ? icons.video : icons.sparkle }),
         el('div', { style: { flex: 1 } }, [
           el('p', { class: 'create-card-title' }, item.label),
@@ -459,50 +492,115 @@
   V.camera = () => {
     hideNav();
     const root = el('section', { class: 'camera' });
-    root.appendChild(el('div', { class: 'camera-preview' }, '🎥 معاينة الكاميرا (محاكاة)'));
+
+    // Live preview <video>
+    const previewWrap = el('div', { class: 'camera-preview' });
+    const previewVideo = Object.assign(document.createElement('video'), { autoplay: true, muted: true, playsInline: true });
+    previewVideo.setAttribute('playsinline', '');
+    previewVideo.style.cssText = 'width:100%;height:100%;object-fit:cover;background:#000';
+    previewWrap.appendChild(previewVideo);
+    root.appendChild(previewWrap);
+
+    let stream = null;
+    let recorder = null;
+    let chunks = [];
+    let facingMode = 'user'; // 'user' | 'environment'
+    let secs = 0, timer = null;
+    let maxSecs = 60;
+    const dur = el('span', { class: 'camera-side-pill' }, '00:00');
+
+    async function startCamera() {
+      try {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode },
+          audio: true,
+        });
+        previewVideo.srcObject = stream;
+      } catch (e) {
+        previewWrap.innerHTML = '';
+        previewWrap.appendChild(el('div', { style: { color: '#fff', padding: '20px', textAlign: 'center' } }, [
+          el('p', {}, '⚠️ تعذر فتح الكاميرا'),
+          el('p', { style: { fontSize: '12px', opacity: 0.7 } }, e.message || 'الرجاء السماح بالوصول إلى الكاميرا والميكروفون.'),
+          el('button', { class: 'btn btn-pill', style: { marginTop: '12px' }, onclick: () => go('/upload') }, 'رفع من المعرض بدلًا من ذلك'),
+        ]));
+      }
+    }
+    startCamera();
+
+    function stopAll() {
+      if (timer) clearInterval(timer);
+      try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (e) {}
+      if (stream) stream.getTracks().forEach(t => t.stop());
+    }
+    window.addEventListener('hashchange', stopAll, { once: true });
+
+    function pickMime() {
+      const candidates = ['video/mp4;codecs=h264,aac', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+      for (const m of candidates) if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+      return '';
+    }
+
+    function startRec() {
+      if (!stream) return;
+      chunks = [];
+      const mimeType = pickMime();
+      try { recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined); }
+      catch (e) { toast('المتصفح لا يدعم التسجيل'); return; }
+      recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const ext = (recorder.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+        const blob = new Blob(chunks, { type: recorder.mimeType || ('video/' + ext) });
+        const file = new File([blob], `clip-${Date.now()}.${ext}`, { type: blob.type });
+        // Park the file in a global so /publish picks it up
+        window._ttPendingClip = file;
+        stopAll();
+        go('/publish');
+      };
+      recorder.start();
+      recBtn.classList.add('recording');
+      secs = 0;
+      timer = setInterval(() => {
+        secs++;
+        dur.textContent = '00:' + String(secs).padStart(2, '0');
+        if (secs >= maxSecs) stopRec();
+      }, 1000);
+    }
+    function stopRec() {
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+      recBtn.classList.remove('recording');
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+
     root.appendChild(el('div', { class: 'camera-top' }, [
-      el('button', { class: 'icon-btn', html: icons.x, onclick: () => go('/create'), style: { color: '#fff' } }),
+      el('button', { class: 'icon-btn', html: icons.x, onclick: () => { stopAll(); go('/create'); }, style: { color: '#fff' } }),
       el('button', { class: 'icon-btn', html: icons.flash, style: { color: '#fff' } }),
     ]));
     root.appendChild(el('div', { class: 'camera-side' }, [
-      el('button', { class: 'camera-side-btn' }, [svg('flip'), el('span', {}, 'قلب')]),
+      el('button', { class: 'camera-side-btn', onclick: async () => { facingMode = facingMode === 'user' ? 'environment' : 'user'; await startCamera(); } }, [svg('flip'), el('span', {}, 'قلب')]),
       el('button', { class: 'camera-side-btn' }, [svg('timer'), el('span', {}, 'مؤقت')]),
       el('button', { class: 'camera-side-btn' }, [svg('filter'), el('span', {}, 'فلاتر')]),
       el('button', { class: 'camera-side-btn' }, [svg('music'), el('span', {}, 'موسيقى')]),
       el('button', { class: 'camera-side-btn' }, [svg('sparkle'), el('span', {}, 'مؤثرات')]),
     ]));
-    let recording = false, secs = 0, timer = null;
-    const dur = el('span', { class: 'camera-side-pill' }, '00:00');
+
     const recBtn = el('button', { class: 'record-btn', onclick: () => {
-      recording = !recording;
-      recBtn.classList.toggle('recording', recording);
-      if (recording) {
-        secs = 0;
-        timer = setInterval(() => {
-          secs++;
-          dur.textContent = '00:' + String(secs).padStart(2, '0');
-          if (secs >= 60) {
-            clearInterval(timer);
-            recording = false;
-            recBtn.classList.remove('recording');
-            go('/edit-video');
-          }
-        }, 1000);
-      } else {
-        clearInterval(timer);
-        if (secs > 0) go('/edit-video');
-      }
+      if (!recorder || recorder.state === 'inactive') startRec(); else stopRec();
     } }, [el('div', { class: 'inner' })]);
+
+    const durations = el('div', { class: 'camera-durations' }, [
+      el('span', { onclick: e => setMax(60, e) }, '60 ث'),
+      el('span', { class: 'active', onclick: e => setMax(15, e) }, '15 ث'),
+      el('span', { onclick: e => setMax(3, e) }, '3 ث'),
+    ]);
+    function setMax(n, e) { maxSecs = n; durations.querySelectorAll('span').forEach(s => s.classList.remove('active')); e.currentTarget.classList.add('active'); }
+
     root.appendChild(el('div', { class: 'camera-bottom' }, [
-      el('div', { class: 'camera-durations' }, [
-        el('span', {}, '60 ث'),
-        el('span', { class: 'active' }, '15 ث'),
-        el('span', {}, 'صورة'),
-      ]),
+      durations,
       el('div', { class: 'camera-record' }, [
-        el('button', { class: 'icon-btn', html: icons.image, style: { color: '#fff' }, onclick: () => go('/edit-video') }),
+        el('button', { class: 'icon-btn', html: icons.image, style: { color: '#fff' }, onclick: () => { stopAll(); go('/upload'); } }),
         recBtn,
-        el('button', { class: 'icon-btn', html: icons.flip, style: { color: '#fff' } }),
+        el('button', { class: 'icon-btn', html: icons.flip, style: { color: '#fff' }, onclick: async () => { facingMode = facingMode === 'user' ? 'environment' : 'user'; await startCamera(); } }),
       ]),
       el('div', { class: 'text-center', style: { color: '#fff', marginTop: '6px' } }, [dur]),
     ]));
@@ -545,11 +643,33 @@
     const wrap = el('div', { class: 'publish' });
     const descInput = el('textarea', { placeholder: 'صف فيديوك، أضف وسومًا (#) أو ذكر مستخدمين (@)' });
     const fileInput = el('input', { type: 'file', accept: 'video/*,image/*', style: { display: 'none' } });
-    const thumb = el('div', { class: 'publish-thumb', style: { backgroundImage: `url(${v.bg})` } });
+    const thumb = el('div', { class: 'publish-thumb', style: { backgroundImage: `url(${v.bg})`, position: 'relative' } });
     let chosenFile = null;
+
+    // If we just came from the camera screen, pick up the recorded clip
+    if (window._ttPendingClip) {
+      chosenFile = window._ttPendingClip;
+      window._ttPendingClip = null;
+    }
+
+    function showPreview(file) {
+      if (!file) return;
+      thumb.innerHTML = '';
+      thumb.style.backgroundImage = '';
+      if (file.type.startsWith('video/')) {
+        const v = Object.assign(document.createElement('video'), { src: URL.createObjectURL(file), muted: true, autoplay: true, loop: true, playsInline: true });
+        v.setAttribute('playsinline', '');
+        v.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:8px;background:#000';
+        thumb.appendChild(v);
+      } else {
+        thumb.style.backgroundImage = `url(${URL.createObjectURL(file)})`;
+      }
+    }
+    if (chosenFile) showPreview(chosenFile);
+
     fileInput.addEventListener('change', e => {
       chosenFile = e.target.files[0];
-      if (chosenFile) thumb.style.backgroundImage = `url(${URL.createObjectURL(chosenFile)})`;
+      showPreview(chosenFile);
     });
     thumb.style.cursor = 'pointer';
     thumb.onclick = () => fileInput.click();

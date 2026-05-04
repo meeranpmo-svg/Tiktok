@@ -5,7 +5,7 @@
 -- now so later phases don't need migrations on top of live data.
 -- =============================================================
 
--- Enable extensions we'll use
+-- Enable extensions we'll use (Supabase has these available; uuid-ossp & pgcrypto pre-enabled)
 create extension if not exists "uuid-ossp";
 create extension if not exists pgcrypto;
 
@@ -14,7 +14,7 @@ create extension if not exists pgcrypto;
 -- =============================================================
 create table if not exists public.profiles (
   id              uuid primary key references auth.users (id) on delete cascade,
-  handle          citext unique,                          -- @username
+  handle          text unique,                            -- @username
   name            text not null default '',
   bio             text default '',
   avatar_url      text,
@@ -26,8 +26,8 @@ create table if not exists public.profiles (
   updated_at      timestamptz not null default now()
 );
 
-create extension if not exists citext;
-alter table public.profiles alter column handle type citext;
+-- Case-insensitive unique index on handle (replaces citext)
+create unique index if not exists profiles_handle_lower_idx on public.profiles (lower(handle));
 
 -- Auto-create profile on signup
 create or replace function public.handle_new_user()

@@ -453,5 +453,171 @@
     if (error) throw error;
   };
 
+  // ============================================================
+  // ============== ADMIN ENDPOINTS (require is_admin) ============
+  // ============================================================
+  API.adminCheckIsAdmin = async () => {
+    const c = await client(); const me = await uid(); if (!me) return false;
+    const { data } = await c.from('profiles').select('is_admin').eq('id', me).maybeSingle();
+    return !!(data && data.is_admin);
+  };
+
+  API.adminStats = async () => {
+    const c = await client();
+    const { data, error } = await c.rpc('admin_stats');
+    if (error) throw error;
+    return data;
+  };
+
+  API.adminFetchUsers = async ({ search = '', status = '' } = {}) => {
+    const c = await client();
+    let q = c.from('profiles').select('id, name, handle, avatar_url, verified, is_admin, banned_until, followers_count, created_at').order('created_at', { ascending: false }).limit(200);
+    if (search) {
+      const term = `%${search.replace(/[%_]/g, '\\$&')}%`;
+      q = q.or(`name.ilike.${term},handle.ilike.${term}`);
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    let users = data || [];
+    if (status === 'active') users = users.filter(u => !u.banned_until);
+    if (status === 'banned') users = users.filter(u => u.banned_until && new Date(u.banned_until) > new Date());
+    if (status === 'admin') users = users.filter(u => u.is_admin);
+    return users;
+  };
+
+  API.adminBanUser = async (userId, days) => {
+    const c = await client();
+    const until = days === null ? null : new Date(Date.now() + days * 86400000).toISOString();
+    const { error } = await c.from('profiles').update({ banned_until: until }).eq('id', userId);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: until ? 'ban_user' : 'unban_user', target_type: 'user', target_id: userId, payload: { until } });
+  };
+
+  API.adminToggleAdmin = async (userId, makeAdmin) => {
+    const c = await client();
+    const { error } = await c.from('profiles').update({ is_admin: !!makeAdmin }).eq('id', userId);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: makeAdmin ? 'grant_admin' : 'revoke_admin', target_type: 'user', target_id: userId });
+  };
+
+  API.adminFetchVideos = async ({ status = 'all', search = '' } = {}) => {
+    const c = await client();
+    let q = c.from('videos').select(`
+      id, description, thumbnail, video_url, privacy, likes_count, comments_count, views_count, is_draft, created_at,
+      user:profiles!videos_user_id_fkey ( id, name, handle, avatar_url )
+    `).order('created_at', { ascending: false }).limit(200);
+    if (status === 'published') q = q.eq('is_draft', false);
+    if (status === 'draft') q = q.eq('is_draft', true);
+    if (search) q = q.ilike('description', `%${search}%`);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  };
+
+  API.adminDeleteVideo = async (videoId) => {
+    const c = await client();
+    const { error } = await c.from('videos').delete().eq('id', videoId);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: 'delete_video', target_type: 'video', target_id: videoId });
+  };
+
+  API.adminFetchReports = async ({ status = 'pending', target_type = '' } = {}) => {
+    const c = await client();
+    let q = c.from('reports').select(`
+      id, target_type, target_id, reason, status, action_taken, created_at, resolved_at,
+      reporter:profiles!reports_reporter_id_fkey ( id, name, handle, avatar_url )
+    `).order('created_at', { ascending: false }).limit(200);
+    if (status) q = q.eq('status', status);
+    if (target_type) q = q.eq('target_type', target_type);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  };
+
+  API.adminResolveReport = async (id, { action, status = 'resolved' }) => {
+    const c = await client();
+    const { error } = await c.from('reports').update({ status, action_taken: action || null, resolved_by: await uid(), resolved_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: 'resolve_report', target_type: 'report', target_id: id, payload: { action } });
+  };
+
+  API.adminFetchLiveStreams = async () => {
+    const c = await client();
+    const { data, error } = await c.from('live_streams').select(`
+      id, title, thumbnail, viewer_count, started_at, status, ended_at,
+      host:profiles!live_streams_host_id_fkey ( id, name, handle, avatar_url )
+    `).order('started_at', { ascending: false }).limit(100);
+    if (error) throw error;
+    return data || [];
+  };
+
+  API.adminEndLive = async (id) => {
+    const c = await client();
+    const { error } = await c.from('live_streams').update({ status: 'banned', ended_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: 'end_live', target_type: 'live_stream', target_id: id });
+  };
+
+  API.adminFetchLogs = async ({ limit = 100 } = {}) => {
+    const c = await client();
+    const { data, error } = await c.from('admin_logs').select(`
+      id, action, target_type, target_id, payload, ip, created_at,
+      admin:profiles!admin_logs_admin_id_fkey ( id, name, avatar_url )
+    `).order('created_at', { ascending: false }).limit(limit);
+    if (error) throw error;
+    return data || [];
+  };
+
+  // Ads
+  API.adminFetchAds = async () => {
+    const c = await client();
+    const { data, error } = await c.from('ads').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  };
+
+  API.adminCreateAd = async (row) => {
+    const c = await client(); const me = await uid();
+    const { data, error } = await c.from('ads').insert({ ...row, created_by: me }).select().single();
+    if (error) throw error;
+    return data;
+  };
+
+  API.adminUpdateAd = async (id, patch) => {
+    const c = await client();
+    const { error } = await c.from('ads').update(patch).eq('id', id);
+    if (error) throw error;
+  };
+
+  API.adminDeleteAd = async (id) => {
+    const c = await client();
+    const { error } = await c.from('ads').delete().eq('id', id);
+    if (error) throw error;
+  };
+
+  // Notifications composer
+  API.adminBroadcastNotification = async ({ title, body, target = {} }) => {
+    const c = await client();
+    let q = c.from('profiles').select('id');
+    if (target.region) q = q.ilike('bio', `%${target.region}%`);
+    const { data: targets } = await q.limit(10000);
+    const rows = (targets || []).map(t => ({
+      user_id: t.id,
+      type: 'system',
+      payload: { title, body },
+    }));
+    if (!rows.length) return 0;
+    // Insert in chunks of 1000
+    let inserted = 0;
+    for (let i = 0; i < rows.length; i += 1000) {
+      const chunk = rows.slice(i, i + 1000);
+      const { error } = await c.from('notifications').insert(chunk);
+      if (error) throw error;
+      inserted += chunk.length;
+    }
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: 'broadcast_notification', target_type: 'system', target_id: null, payload: { title, count: inserted } });
+    return inserted;
+  };
+
   window.API = API;
 })();

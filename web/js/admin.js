@@ -40,11 +40,28 @@
     card.appendChild(el('div', { class: 'mark' }, 'T'));
     card.appendChild(el('h1', {}, 'لوحة التحكم'));
     card.appendChild(el('p', {}, 'سجّل دخولك للوصول إلى لوحة الإدارة'));
-    const u = el('input', { class: 'input', placeholder: 'البريد الإلكتروني', value: 'admin@tenthtone.com', style: { width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '12px', fontSize: '14px', outline: 0 } });
-    const p = el('input', { class: 'input', type: 'password', placeholder: 'كلمة المرور', value: '••••••••', style: { width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '12px', fontSize: '14px', outline: 0 } });
-    card.appendChild(u);
-    card.appendChild(p);
-    card.appendChild(el('button', { class: 'btn', style: { width: '100%' }, onclick: () => { location.hash = '#/dashboard'; } }, 'تسجيل الدخول'));
+    const inputStyle = { width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '12px', fontSize: '14px', outline: 0 };
+    const u = el('input', { type: 'email', placeholder: 'البريد الإلكتروني', style: inputStyle });
+    const p = el('input', { type: 'password', placeholder: 'كلمة المرور', style: inputStyle });
+    const err = el('div', { style: { color: 'var(--danger)', fontSize: '13px', marginBottom: '12px', display: 'none' } });
+    card.appendChild(u); card.appendChild(p); card.appendChild(err);
+    const btn = el('button', { class: 'btn', style: { width: '100%' } }, 'تسجيل الدخول');
+    btn.onclick = async () => {
+      err.style.display = 'none'; btn.disabled = true; btn.textContent = 'جاري الدخول...';
+      try {
+        if (!window.SB) throw new Error('SDK not loaded');
+        await window.SB.signIn({ email: u.value.trim(), password: p.value });
+        if (!window.API) throw new Error('API not loaded');
+        const isAdmin = await window.API.adminCheckIsAdmin();
+        if (!isAdmin) { await window.SB.signOut(); throw new Error('هذا الحساب ليس لديه صلاحيات إدارية'); }
+        location.hash = '#/dashboard';
+      } catch (e) {
+        err.textContent = (e.message && /Invalid login/i.test(e.message)) ? 'بيانات الدخول غير صحيحة' : (e.message || 'تعذر الدخول');
+        err.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'تسجيل الدخول';
+      }
+    };
+    card.appendChild(btn);
     r.appendChild(card);
     return r;
   }
@@ -185,11 +202,23 @@
     const page = el('div', { class: 'adm-page' });
     page.appendChild(pageHeader('لوحة التحكم', 'نظرة عامة على المنصة'));
     const stats = el('div', { class: 'stats-grid' });
-    stats.appendChild(statCard({ label: 'مستخدمون نشطون اليوم', value: '12,480', delta: '+8.2%', icon: 'user', tone: 'primary' }));
-    stats.appendChild(statCard({ label: 'فيديوهات اليوم', value: '3,217', delta: '+3.1%', icon: 'video', tone: 'info' }));
-    stats.appendChild(statCard({ label: 'تفاعل (إعجاب/تعليق)', value: '1.4M', delta: '+12.6%', icon: 'heart', tone: 'success' }));
-    stats.appendChild(statCard({ label: 'بلاغات قيد المراجعة', value: '47', delta: '-5%', icon: 'flag', tone: 'danger' }));
+    const c1 = statCard({ label: 'إجمالي المستخدمين', value: '...', icon: 'user', tone: 'primary' });
+    const c2 = statCard({ label: 'إجمالي الفيديوهات', value: '...', icon: 'video', tone: 'info' });
+    const c3 = statCard({ label: 'بثوث مباشرة الآن', value: '...', icon: 'eye', tone: 'success' });
+    const c4 = statCard({ label: 'بلاغات قيد المراجعة', value: '...', icon: 'flag', tone: 'danger' });
+    stats.appendChild(c1); stats.appendChild(c2); stats.appendChild(c3); stats.appendChild(c4);
     page.appendChild(stats);
+    // Async load real stats
+    (async () => {
+      try {
+        if (!window.API) return;
+        const s = await window.API.adminStats();
+        c1.querySelector('.value').textContent = fmt(s.total_users || 0);
+        c2.querySelector('.value').textContent = fmt(s.total_videos || 0);
+        c3.querySelector('.value').textContent = fmt(s.live_now || 0);
+        c4.querySelector('.value').textContent = fmt(s.pending_reports || 0);
+      } catch (e) { console.warn('admin stats:', e); }
+    })();
 
     // 2-col: line chart + donut
     const grid = el('div', { class: 'grid-2' });
@@ -217,90 +246,106 @@
     // bottom: top users + activity
     const grid2 = el('div', { class: 'grid-2', style: { marginTop: '14px' } });
     const topU = el('div', { class: 'card' });
-    topU.appendChild(el('div', { class: 'card-h' }, [el('h3', {}, 'أعلى المستخدمين تفاعلًا'), el('a', { class: 'btn-ghost btn-sm', href: '#/users' }, 'عرض الكل')]));
-    const list = el('div', { class: 'top-list' });
-    DB.users.slice(0, 6).forEach((u, i) => list.appendChild(el('div', { class: 'top-item' }, [
-      el('div', { class: 'rank' }, '#' + (i + 1)),
-      el('div', { class: 'av' }, [Object.assign(document.createElement('img'), { src: u.avatar })]),
-      el('div', { class: 'body' }, [el('div', { class: 'ttl' }, u.name), el('div', { class: 'sub' }, u.handle)]),
-      el('div', { class: 'num' }, fmt(u.followers) + ' متابع'),
-    ])));
-    topU.appendChild(list);
+    topU.appendChild(el('div', { class: 'card-h' }, [el('h3', {}, 'أعلى المستخدمين متابعةً'), el('a', { class: 'btn-ghost btn-sm', href: '#/users' }, 'عرض الكل')]));
+    const list = el('div', { class: 'top-list' }); topU.appendChild(list);
+    (async () => {
+      try {
+        const users = await window.API.adminFetchUsers({});
+        users.sort((a, b) => (b.followers_count || 0) - (a.followers_count || 0));
+        list.innerHTML = '';
+        users.slice(0, 6).forEach((u, i) => list.appendChild(el('div', { class: 'top-item' }, [
+          el('div', { class: 'rank' }, '#' + (i + 1)),
+          el('div', { class: 'av' }, [Object.assign(document.createElement('img'), { src: u.avatar_url || '' })]),
+          el('div', { class: 'body' }, [el('div', { class: 'ttl' }, u.name + (u.is_admin ? ' (مشرف)' : '')), el('div', { class: 'sub' }, '@' + (u.handle || ''))]),
+          el('div', { class: 'num' }, fmt(u.followers_count || 0) + ' متابع'),
+        ])));
+      } catch (e) { console.warn('top users:', e); }
+    })();
     grid2.appendChild(topU);
 
     const act = el('div', { class: 'card' });
     act.appendChild(el('div', { class: 'card-h' }, [el('h3', {}, 'آخر النشاطات'), el('a', { class: 'btn-ghost btn-sm', href: '#/logs' }, 'سجل كامل')]));
-    const al = el('div', { class: 'activity-list' });
-    [
-      { i: 'flag', t: 'بلاغ جديد عن فيديو', u: 'سارة', tm: 'منذ 5د', tone: 'danger' },
-      { i: 'user', t: 'تسجيل مستخدم جديد', u: 'يوسف', tm: 'منذ 12د', tone: 'success' },
-      { i: 'gift', t: 'هدية بقيمة 500 من علي إلى ريم', u: '', tm: 'منذ 30د', tone: 'warn' },
-      { i: 'video', t: 'حذف فيديو مخالف', u: 'المشرف', tm: 'منذ ساعة', tone: 'info' },
-      { i: 'lock', t: 'تعديل صلاحيات الدور "مشرف محتوى"', u: 'أنت', tm: 'أمس', tone: 'primary' },
-    ].forEach(a => al.appendChild(el('div', { class: 'activity-item' }, [
-      el('div', { class: 'ai-icon', style: { background: `var(--${a.tone}-soft)`, color: `var(--${a.tone})` }, html: icons[a.i] }),
-      el('div', { class: 'ai-text' }, [el('b', {}, a.u), document.createTextNode(' ' + a.t)]),
-      el('div', { class: 'ai-time' }, a.tm),
-    ])));
-    act.appendChild(al);
+    const al = el('div', { class: 'activity-list' }); act.appendChild(al);
+    (async () => {
+      try {
+        const logs = await window.API.adminFetchLogs({ limit: 8 });
+        al.innerHTML = '';
+        if (!logs.length) { al.appendChild(el('div', { class: 'muted', style: { padding: '12px' } }, 'لا توجد نشاطات بعد')); return; }
+        logs.forEach(L => al.appendChild(el('div', { class: 'activity-item' }, [
+          el('div', { class: 'ai-icon', style: { background: 'var(--primary-soft)', color: 'var(--primary)' }, html: icons.eye }),
+          el('div', { class: 'ai-text' }, [el('b', {}, (L.admin && L.admin.name) || 'مشرف'), document.createTextNode(' · ' + L.action.replace(/_/g, ' '))]),
+          el('div', { class: 'ai-time' }, _ago(L.created_at)),
+        ])));
+      } catch (e) { console.warn('logs:', e); }
+    })();
     grid2.appendChild(act);
     page.appendChild(grid2);
 
     return page;
   }
+  function _ago(iso) { if (!iso) return ''; const t = Date.now() - new Date(iso).getTime(); const m = Math.floor(t / 60000); if (m < 1) return 'الآن'; if (m < 60) return 'منذ ' + m + 'د'; const h = Math.floor(m / 60); if (h < 24) return 'منذ ' + h + 'س'; return 'منذ ' + Math.floor(h / 24) + 'ي'; }
 
   // ===== Users =====
   function viewUsers() {
     const page = el('div', { class: 'adm-page' });
-    page.appendChild(pageHeader('إدارة الحسابات', 'عرض المستخدمين، البحث، الحظر، التعديل', [
-      el('button', { class: 'btn btn-secondary' }, [svg('download'), document.createTextNode(' تصدير')]),
-      el('button', { class: 'btn', onclick: () => openUserModal() }, [svg('plus'), document.createTextNode(' إضافة مستخدم')]),
-    ]));
+    page.appendChild(pageHeader('إدارة الحسابات', 'عرض المستخدمين، البحث، الحظر، تعيين المشرفين'));
     const tableWrap = el('div', { class: 'table-wrap' });
+    const searchIn = el('input', { placeholder: 'بحث بالاسم أو اسم المستخدم' });
+    const statusSel = el('select', {}, [el('option', { value: '' }, 'كل الحالات'), el('option', { value: 'active' }, 'نشط'), el('option', { value: 'banned' }, 'محظور'), el('option', { value: 'admin' }, 'مشرف')]);
     tableWrap.appendChild(el('div', { class: 'table-toolbar' }, [
-      el('div', { class: 'search', style: { flex: 1 } }, [el('input', { placeholder: 'بحث بالاسم، البريد، أو رقم الهاتف' })]),
-      el('select', {}, [el('option', {}, 'كل الحالات'), el('option', {}, 'نشط'), el('option', {}, 'محظور'), el('option', {}, 'موقوف')]),
-      el('select', {}, [el('option', {}, 'كل الأدوار'), el('option', {}, 'مستخدم'), el('option', {}, 'مشرف')]),
+      el('div', { class: 'search', style: { flex: 1 } }, [searchIn]),
+      statusSel,
     ]));
     const table = el('table', { class: 'table' });
     table.innerHTML = `<thead><tr>
-      <th><input type="checkbox" class="checkbox"/></th>
       <th>المستخدم</th>
-      <th>البريد</th>
       <th>المتابعون</th>
-      <th>الفيديوهات</th>
       <th>الحالة</th>
       <th>تاريخ الانضمام</th>
       <th></th>
     </tr></thead>`;
     const tb = el('tbody');
-    DB.users.forEach((u, i) => {
-      const status = i === 2 ? { l: 'محظور', c: 'danger' } : i === 5 ? { l: 'موقوف', c: 'warn' } : { l: 'نشط', c: 'success' };
-      const tr = el('tr');
-      tr.innerHTML = `
-        <td><input type="checkbox" class="checkbox"/></td>
-        <td><div class="user-cell"><div class="av"><img src="${u.avatar}"></div><div><div class="nm">${u.name}${u.verified ? ' ✓' : ''}</div><div class="em">${u.handle}</div></div></div></td>
-        <td>${u.handle.replace('@', '')}@example.com</td>
-        <td>${fmt(u.followers)}</td>
-        <td>${15 + i * 7}</td>
-        <td><span class="badge ${status.c}">${status.l}</span></td>
-        <td>2024/${String(((i % 12) + 1)).padStart(2, '0')}/${String(((i % 27) + 1)).padStart(2, '0')}</td>
-        <td><div class="row-actions">
-          <button class="btn-icon btn-ghost" title="تعديل" data-act="edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-          <button class="btn-icon btn-ghost" title="حظر" data-act="block"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></button>
-          <button class="btn-icon btn-ghost" title="إعادة تعيين كلمة المرور" data-act="reset"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        </div></td>`;
-      tr.querySelector('[data-act="edit"]').onclick = () => openUserModal(u);
-      tr.querySelector('[data-act="block"]').onclick = () => {
-        if (confirm('هل تريد حظر هذا الحساب؟')) toast('تم حظر ' + u.name);
-      };
-      tr.querySelector('[data-act="reset"]').onclick = () => toast('تم إرسال كلمة مرور جديدة لـ ' + u.name);
-      tb.appendChild(tr);
-    });
     table.appendChild(tb);
     tableWrap.appendChild(table);
-    tableWrap.appendChild(pagination(DB.users.length, 10));
     page.appendChild(tableWrap);
+
+    async function load() {
+      tb.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center" class="muted">جاري التحميل...</td></tr>';
+      try {
+        const users = await window.API.adminFetchUsers({ search: searchIn.value, status: statusSel.value });
+        tb.innerHTML = '';
+        if (!users.length) { tb.innerHTML = '<tr><td colspan="5" class="table-empty">لا توجد نتائج</td></tr>'; return; }
+        users.forEach(u => {
+          const isBanned = u.banned_until && new Date(u.banned_until) > new Date();
+          const status = isBanned ? { l: 'محظور', c: 'danger' } : u.is_admin ? { l: 'مشرف', c: 'primary' } : { l: 'نشط', c: 'success' };
+          const tr = el('tr');
+          tr.innerHTML = `
+            <td><div class="user-cell"><div class="av"><img src="${u.avatar_url || ''}" onerror="this.style.background='#ddd'"></div><div><div class="nm">${u.name || ''}${u.verified ? ' ✓' : ''}</div><div class="em">@${u.handle || ''}</div></div></div></td>
+            <td>${fmt(u.followers_count || 0)}</td>
+            <td><span class="badge ${status.c}">${status.l}</span></td>
+            <td>${new Date(u.created_at).toLocaleDateString('ar-SA')}</td>
+            <td><div class="row-actions">
+              <button class="btn-sm btn-secondary" data-act="admin">${u.is_admin ? 'إزالة الإشراف' : 'تعيين مشرف'}</button>
+              <button class="btn-sm btn-${isBanned ? 'secondary' : 'danger'}" data-act="ban">${isBanned ? 'إلغاء الحظر' : 'حظر'}</button>
+            </div></td>`;
+          tr.querySelector('[data-act="admin"]').onclick = async () => {
+            if (!confirm((u.is_admin ? 'إزالة' : 'تعيين') + ' دور المشرف لـ ' + u.name + '?')) return;
+            try { await window.API.adminToggleAdmin(u.id, !u.is_admin); toast('تم'); load(); }
+            catch (e) { toast(e.message); }
+          };
+          tr.querySelector('[data-act="ban"]').onclick = async () => {
+            const days = isBanned ? null : prompt('عدد أيام الحظر (فارغ = دائم):', '7');
+            if (days === null && !isBanned) return;
+            try { await window.API.adminBanUser(u.id, days === null ? null : (days === '' ? 36500 : parseInt(days))); toast('تم'); load(); }
+            catch (e) { toast(e.message); }
+          };
+          tb.appendChild(tr);
+        });
+      } catch (e) { tb.innerHTML = '<tr><td colspan="5" class="table-empty">' + e.message + '</td></tr>'; }
+    }
+    let t; searchIn.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+    statusSel.addEventListener('change', load);
+    load();
     return page;
 
     function openUserModal(u) {
@@ -337,43 +382,57 @@
   // ===== Videos =====
   function viewVideos() {
     const page = el('div', { class: 'adm-page' });
-    page.appendChild(pageHeader('الفيديوهات', 'مراجعة المحتوى المنشور', [
-      el('button', { class: 'btn btn-secondary' }, [svg('download'), document.createTextNode(' تصدير')]),
-    ]));
+    page.appendChild(pageHeader('الفيديوهات', 'مراجعة المحتوى المنشور'));
+    let activeTab = 'all';
     const tabs = el('div', { class: 'tabs' });
-    ['الكل', 'منشور', 'قيد المراجعة', 'محذوف'].forEach((l, i) => tabs.appendChild(el('button', { class: 'tab' + (i === 0 ? ' active' : ''), onclick: e => { tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); e.currentTarget.classList.add('active'); } }, l)));
+    [['all', 'الكل'], ['published', 'منشور'], ['draft', 'مسودة']].forEach(([k, l], i) => tabs.appendChild(el('button', { class: 'tab' + (i === 0 ? ' active' : ''), onclick: e => { activeTab = k; tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); e.currentTarget.classList.add('active'); load(); } }, l)));
     page.appendChild(tabs);
     const tableWrap = el('div', { class: 'table-wrap' });
+    const searchIn = el('input', { placeholder: 'بحث بالوصف' });
     tableWrap.appendChild(el('div', { class: 'table-toolbar' }, [
-      el('div', { class: 'search', style: { flex: 1 } }, [el('input', { placeholder: 'بحث بالعنوان أو الناشر' })]),
-      el('select', {}, [el('option', {}, 'الترتيب: الأحدث'), el('option', {}, 'الأكثر مشاهدة'), el('option', {}, 'الأعلى تفاعلًا')]),
+      el('div', { class: 'search', style: { flex: 1 } }, [searchIn]),
     ]));
     const table = el('table', { class: 'table' });
-    table.innerHTML = `<thead><tr>
-      <th>الفيديو</th><th>الناشر</th><th>المشاهدات</th><th>الإعجابات</th><th>التعليقات</th><th>الحالة</th><th></th>
-    </tr></thead>`;
-    const tb = el('tbody');
-    DB.videos.forEach((v, i) => {
-      const status = i === 3 ? ['warn', 'قيد المراجعة'] : i === 7 ? ['danger', 'محذوف'] : ['success', 'منشور'];
-      const tr = el('tr');
-      tr.innerHTML = `
-        <td><div style="display:flex;gap:10px;align-items:center"><div class="vthumb"><img src="${v.bg}"/></div><div><div style="font-weight:700;font-size:13px">${v.desc.slice(0, 40)}…</div><div class="muted" style="font-size:11.5px">${v.music}</div></div></div></td>
-        <td>${v.user.name}</td>
-        <td>${fmt(v.likes * 12)}</td>
-        <td>${fmt(v.likes)}</td>
-        <td>${v.comments}</td>
-        <td><span class="badge ${status[0]}">${status[1]}</span></td>
-        <td><div class="row-actions">
-          <button class="btn-icon btn-ghost" title="عرض"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-          <button class="btn-icon btn-ghost" title="حذف" data-act="del"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
-        </div></td>`;
-      tr.querySelector('[data-act="del"]').onclick = () => { if (confirm('حذف هذا الفيديو؟')) toast('تم الحذف'); };
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb);
-    tableWrap.appendChild(table);
-    tableWrap.appendChild(pagination(DB.videos.length, 10));
-    page.appendChild(tableWrap);
+    table.innerHTML = `<thead><tr><th>الفيديو</th><th>الناشر</th><th>المشاهدات</th><th>الإعجابات</th><th>التعليقات</th><th>الحالة</th><th></th></tr></thead>`;
+    const tb = el('tbody'); table.appendChild(tb);
+    tableWrap.appendChild(table); page.appendChild(tableWrap);
+
+    async function load() {
+      tb.innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center" class="muted">جاري التحميل...</td></tr>';
+      try {
+        const videos = await window.API.adminFetchVideos({ status: activeTab, search: searchIn.value });
+        tb.innerHTML = '';
+        if (!videos.length) { tb.innerHTML = '<tr><td colspan="7" class="table-empty">لا توجد فيديوهات</td></tr>'; return; }
+        videos.forEach(v => {
+          const status = v.is_draft ? ['warn', 'مسودة'] : ['success', 'منشور'];
+          const tr = el('tr');
+          const isVid = v.video_url && /\.(mp4|mov|webm)/i.test(v.video_url);
+          const thumbHtml = isVid
+            ? `<video src="${v.video_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover" onmouseover="this.play()" onmouseout="this.pause()"></video>`
+            : `<img src="${v.thumbnail || v.video_url || ''}" />`;
+          tr.innerHTML = `
+            <td><div style="display:flex;gap:10px;align-items:center"><div class="vthumb">${thumbHtml}</div><div style="min-width:0;flex:1"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${(v.description || '').slice(0, 40) || '(بلا وصف)'}</div><div class="muted" style="font-size:11.5px">${new Date(v.created_at).toLocaleString('ar-SA')}</div></div></div></td>
+            <td>${(v.user && v.user.name) || ''}<div class="muted" style="font-size:11.5px">@${(v.user && v.user.handle) || ''}</div></td>
+            <td>${fmt(v.views_count || 0)}</td>
+            <td>${fmt(v.likes_count || 0)}</td>
+            <td>${v.comments_count || 0}</td>
+            <td><span class="badge ${status[0]}">${status[1]}</span></td>
+            <td><div class="row-actions">
+              <button class="btn-sm btn-secondary" data-act="view">عرض</button>
+              <button class="btn-sm btn-danger" data-act="del">حذف</button>
+            </div></td>`;
+          tr.querySelector('[data-act="view"]').onclick = () => window.open(v.video_url || v.thumbnail, '_blank');
+          tr.querySelector('[data-act="del"]').onclick = async () => {
+            if (!confirm('حذف هذا الفيديو نهائيًا؟')) return;
+            try { await window.API.adminDeleteVideo(v.id); toast('تم الحذف'); load(); }
+            catch (e) { toast(e.message); }
+          };
+          tb.appendChild(tr);
+        });
+      } catch (e) { tb.innerHTML = '<tr><td colspan="7" class="table-empty">' + e.message + '</td></tr>'; }
+    }
+    let t; searchIn.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+    load();
     return page;
   }
 
@@ -415,71 +474,57 @@
   function viewReports() {
     const page = el('div', { class: 'adm-page' });
     page.appendChild(pageHeader('البلاغات', 'مراجعة البلاغات المقدمة من المستخدمين'));
-    const stats = el('div', { class: 'stats-grid' });
-    stats.appendChild(statCard({ label: 'قيد المراجعة', value: '47', icon: 'flag', tone: 'warn' }));
-    stats.appendChild(statCard({ label: 'تم الحسم اليوم', value: '23', icon: 'sparkle', tone: 'success' }));
-    stats.appendChild(statCard({ label: 'متوسط زمن المعالجة', value: '4 س', icon: 'timer', tone: 'info' }));
-    stats.appendChild(statCard({ label: 'معدل الإجراء', value: '78%', icon: 'eye', tone: 'primary' }));
-    page.appendChild(stats);
 
+    let activeTab = '';   // status filter: '' = pending, 'resolved', 'dismissed'
+    let activeType = '';  // target_type filter
     const tabs = el('div', { class: 'tabs' });
-    ['الكل', 'فيديوهات', 'تعليقات', 'حسابات'].forEach((l, i) => tabs.appendChild(el('button', { class: 'tab' + (i === 0 ? ' active' : '') }, l)));
+    [['', 'قيد المراجعة'], ['resolved', 'تم الحسم'], ['dismissed', 'مرفوضة']].forEach(([k, l], i) => tabs.appendChild(el('button', { class: 'tab' + (i === 0 ? ' active' : ''), onclick: e => { activeTab = k === '' ? 'pending' : k; tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); e.currentTarget.classList.add('active'); load(); } }, l)));
+    activeTab = 'pending';
     page.appendChild(tabs);
 
     const tableWrap = el('div', { class: 'table-wrap' });
+    const typeSel = el('select', {}, [el('option', { value: '' }, 'كل الأنواع'), el('option', { value: 'video' }, 'فيديو'), el('option', { value: 'comment' }, 'تعليق'), el('option', { value: 'user' }, 'حساب'), el('option', { value: 'live_stream' }, 'بث مباشر')]);
+    typeSel.addEventListener('change', () => { activeType = typeSel.value; load(); });
+    tableWrap.appendChild(el('div', { class: 'table-toolbar' }, [typeSel]));
     const table = el('table', { class: 'table' });
-    table.innerHTML = `<thead><tr><th>النوع</th><th>المحتوى</th><th>المُبلِّغ</th><th>السبب</th><th>الحالة</th><th>التاريخ</th><th></th></tr></thead>`;
-    const tb = el('tbody');
-    const types = [
-      { i: 'video', l: 'فيديو', c: 'video' },
-      { i: 'comment', l: 'تعليق', c: 'comment' },
-      { i: 'user', l: 'حساب', c: 'account' },
-    ];
-    const reasons = ['محتوى عنف', 'إيذاء أو كراهية', 'محتوى جنسي', 'مضايقة', 'محتوى مزيف', 'انتهاك حقوق', 'سبام/إعلان', 'احتيال'];
-    for (let i = 0; i < 10; i++) {
-      const tp = types[i % 3];
-      const status = i % 4 === 0 ? ['success', 'تم الحسم'] : ['warn', 'قيد المراجعة'];
-      const u = DB.users[i % DB.users.length];
-      const tr = el('tr');
-      tr.innerHTML = `
-        <td><div style="display:flex;gap:10px;align-items:center"><div class="rep-icon ${tp.c}">${icons[tp.i]}</div><strong>${tp.l}</strong></div></td>
-        <td>${tp.l === 'فيديو' ? 'فيديو #' + (i + 1) : tp.l === 'تعليق' ? '"' + ['مزعج', 'مخالف', 'سبام'][i % 3] + '..."' : '@' + u.handle.replace('@', '')}</td>
-        <td>${u.name}</td>
-        <td>${reasons[i % reasons.length]}</td>
-        <td><span class="badge ${status[0]}">${status[1]}</span></td>
-        <td>منذ ${i + 1} ساعة</td>
-        <td><div class="row-actions">
-          <button class="btn btn-secondary btn-sm" data-act="view">مراجعة</button>
-          <button class="btn-icon btn-ghost" title="إجراء" data-act="action">${icons.moreV}</button>
-        </div></td>`;
-      tr.querySelector('[data-act="view"]').onclick = () => openReportModal(tp, reasons[i % reasons.length], u);
-      tb.appendChild(tr);
-    }
-    table.appendChild(tb);
-    tableWrap.appendChild(table);
-    tableWrap.appendChild(pagination(47, 10));
-    page.appendChild(tableWrap);
+    table.innerHTML = `<thead><tr><th>النوع</th><th>الكيان</th><th>المُبلِّغ</th><th>السبب</th><th>التاريخ</th><th></th></tr></thead>`;
+    const tb = el('tbody'); table.appendChild(tb);
+    tableWrap.appendChild(table); page.appendChild(tableWrap);
 
-    function openReportModal(tp, reason, u) {
-      const body = el('div', {});
-      body.innerHTML = `
-        <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
-          <div class="rep-icon ${tp.c}">${icons[tp.i]}</div>
-          <div><div style="font-weight:700">${tp.l}</div><div class="muted" style="font-size:12px">${reason}</div></div>
-        </div>
-        <div class="field"><label>المُبلِّغ</label><div>${u.name} (${u.handle})</div></div>
-        <div class="field"><label>تفاصيل البلاغ</label><div class="muted">المحتوى يحتوي على ما يخالف معايير المجتمع. تم الإبلاغ عنه ${(Math.random() * 8 | 0) + 1} مرات في اليوم الواحد.</div></div>
-        <div class="field"><label>الإجراء المقترح</label>
-          <select><option>تحذير المستخدم</option><option>حذف المحتوى</option><option>حذف وحظر مؤقت</option><option>حظر دائم</option><option>تجاهل البلاغ</option></select>
-        </div>
-        <div class="field"><label>ملاحظات (اختياري)</label><textarea placeholder="ملاحظات للسجل"></textarea></div>
-      `;
-      const close = modalAdm('مراجعة البلاغ', body, [
-        el('button', { class: 'btn btn-secondary', onclick: () => close() }, 'إلغاء'),
-        el('button', { class: 'btn btn-danger', onclick: () => { close(); toast('تم تنفيذ الإجراء'); } }, 'تنفيذ الإجراء'),
-      ]);
+    async function load() {
+      tb.innerHTML = '<tr><td colspan="6" style="padding:30px;text-align:center" class="muted">جاري التحميل...</td></tr>';
+      try {
+        const reports = await window.API.adminFetchReports({ status: activeTab, target_type: activeType });
+        tb.innerHTML = '';
+        if (!reports.length) { tb.innerHTML = '<tr><td colspan="6" class="table-empty">لا توجد بلاغات</td></tr>'; return; }
+        const typeMap = { video: 'فيديو', comment: 'تعليق', user: 'حساب', live_stream: 'بث' };
+        reports.forEach(r => {
+          const tr = el('tr');
+          tr.innerHTML = `
+            <td><strong>${typeMap[r.target_type] || r.target_type}</strong></td>
+            <td><code style="font-size:11px">${(r.target_id || '').slice(0, 8)}</code></td>
+            <td>${(r.reporter && r.reporter.name) || '-'}</td>
+            <td>${r.reason}</td>
+            <td>${new Date(r.created_at).toLocaleString('ar-SA')}</td>
+            <td><div class="row-actions">
+              <button class="btn-sm btn-danger" data-act="resolve">حسم بإجراء</button>
+              <button class="btn-sm btn-secondary" data-act="dismiss">رفض</button>
+            </div></td>`;
+          tr.querySelector('[data-act="resolve"]').onclick = async () => {
+            const action = prompt('الإجراء المتخذ (مثال: تم حذف المحتوى / تم تحذير المستخدم):', 'تم حذف المحتوى');
+            if (!action) return;
+            try { await window.API.adminResolveReport(r.id, { action, status: 'resolved' }); toast('تم'); load(); }
+            catch (e) { toast(e.message); }
+          };
+          tr.querySelector('[data-act="dismiss"]').onclick = async () => {
+            try { await window.API.adminResolveReport(r.id, { action: 'تم الرفض', status: 'dismissed' }); toast('تم الرفض'); load(); }
+            catch (e) { toast(e.message); }
+          };
+          tb.appendChild(tr);
+        });
+      } catch (e) { tb.innerHTML = '<tr><td colspan="6" class="table-empty">' + e.message + '</td></tr>'; }
     }
-
+    load();
     return page;
   }
 
@@ -487,37 +532,41 @@
   function viewLive() {
     const page = el('div', { class: 'adm-page' });
     page.appendChild(pageHeader('البث المباشر', 'مراقبة الجلسات النشطة وإنهاء البثوث المخالفة'));
-    const stats = el('div', { class: 'stats-grid' });
-    stats.appendChild(statCard({ label: 'بثوث نشطة', value: '142', icon: 'video', tone: 'danger' }));
-    stats.appendChild(statCard({ label: 'مشاهدون متزامنون', value: '38.2K', icon: 'eye', tone: 'info' }));
-    stats.appendChild(statCard({ label: 'هدايا مُرسَلة (اليوم)', value: '12.4K', icon: 'gift', tone: 'warn' }));
-    stats.appendChild(statCard({ label: 'بثوث منتهية اليوم', value: '847', icon: 'sparkle', tone: 'success' }));
-    page.appendChild(stats);
-
-    const tabs = el('div', { class: 'tabs' });
-    ['نشط الآن', 'الأرشيف', 'مخالف'].forEach((l, i) => tabs.appendChild(el('button', { class: 'tab' + (i === 0 ? ' active' : '') }, l)));
-    page.appendChild(tabs);
-
     const grid = el('div', { class: 'grid-3' });
-    DB.lives.forEach(l => {
-      const card = el('div', { class: 'card', style: { padding: 0, overflow: 'hidden' } });
-      card.appendChild(el('div', { style: { aspectRatio: '16/9', backgroundImage: `url(${l.bg})`, backgroundSize: 'cover', position: 'relative' } }, [
-        el('div', { style: { position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.1), rgba(0,0,0,0.6))' } }),
-        el('div', { style: { position: 'absolute', top: '8px', insetInlineStart: '8px' } }, [el('span', { class: 'badge danger' }, '● مباشر')]),
-        el('div', { style: { position: 'absolute', top: '8px', insetInlineEnd: '8px' } }, [el('span', { class: 'badge muted', style: { background: 'rgba(0,0,0,0.5)', color: '#fff' } }, fmt(l.viewers) + ' 👁')]),
-        el('div', { style: { position: 'absolute', bottom: '8px', insetInlineStart: '8px', color: '#fff', fontWeight: 700 } }, l.title),
-      ]));
-      card.appendChild(el('div', { style: { padding: '12px' } }, [
-        el('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } }, [
-          el('div', { style: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden' } }, [Object.assign(document.createElement('img'), { src: l.host.avatar, style: 'width:100%;height:100%;object-fit:cover' })]),
-          el('div', { style: { flex: 1 } }, [el('div', { style: { fontWeight: 700, fontSize: '13px' } }, l.host.name), el('div', { class: 'muted', style: { fontSize: '11.5px' } }, l.host.handle)]),
-          el('button', { class: 'btn btn-secondary btn-sm', onclick: () => toast('فتح المراقبة...') }, 'مراقبة'),
-          el('button', { class: 'btn btn-danger btn-sm', onclick: () => { if (confirm('إنهاء البث الآن؟')) toast('تم الإنهاء'); } }, 'إنهاء'),
-        ]),
-      ]));
-      grid.appendChild(card);
-    });
     page.appendChild(grid);
+    (async () => {
+      grid.innerHTML = '<div style="padding:30px;text-align:center" class="muted">جاري التحميل...</div>';
+      try {
+        const lives = await window.API.adminFetchLiveStreams();
+        const active = lives.filter(l => l.status === 'live');
+        grid.innerHTML = '';
+        if (!active.length) { grid.appendChild(el('div', { class: 'empty-state', style: { gridColumn: '1/-1' } }, 'لا توجد بثوث نشطة الآن')); return; }
+        active.forEach(l => {
+          const card = el('div', { class: 'card', style: { padding: 0, overflow: 'hidden' } });
+          const bg = l.thumbnail || (DB.videos[0] && DB.videos[0].bg) || '';
+          card.appendChild(el('div', { style: { aspectRatio: '16/9', backgroundImage: `url(${bg})`, backgroundSize: 'cover', position: 'relative' } }, [
+            el('div', { style: { position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.1), rgba(0,0,0,0.6))' } }),
+            el('div', { style: { position: 'absolute', top: '8px', insetInlineStart: '8px' } }, [el('span', { class: 'badge danger' }, '● مباشر')]),
+            el('div', { style: { position: 'absolute', top: '8px', insetInlineEnd: '8px' } }, [el('span', { class: 'badge muted', style: { background: 'rgba(0,0,0,0.5)', color: '#fff' } }, fmt(l.viewer_count || 0) + ' 👁')]),
+            el('div', { style: { position: 'absolute', bottom: '8px', insetInlineStart: '8px', color: '#fff', fontWeight: 700 } }, l.title || 'بث مباشر'),
+          ]));
+          const endBtn = el('button', { class: 'btn btn-danger btn-sm' }, 'إنهاء');
+          endBtn.onclick = async () => {
+            if (!confirm('إنهاء هذا البث الآن؟')) return;
+            try { await window.API.adminEndLive(l.id); toast('تم الإنهاء'); l.status = 'banned'; card.remove(); }
+            catch (e) { toast(e.message); }
+          };
+          card.appendChild(el('div', { style: { padding: '12px' } }, [
+            el('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } }, [
+              el('div', { style: { width: '34px', height: '34px', borderRadius: '50%', overflow: 'hidden' } }, [Object.assign(document.createElement('img'), { src: (l.host && l.host.avatar_url) || '', style: 'width:100%;height:100%;object-fit:cover' })]),
+              el('div', { style: { flex: 1 } }, [el('div', { style: { fontWeight: 700, fontSize: '13px' } }, (l.host && l.host.name) || ''), el('div', { class: 'muted', style: { fontSize: '11.5px' } }, '@' + ((l.host && l.host.handle) || ''))]),
+              endBtn,
+            ]),
+          ]));
+          grid.appendChild(card);
+        });
+      } catch (e) { grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + e.message + '</div>'; }
+    })();
     return page;
   }
 
@@ -852,46 +901,30 @@
   // ===== Logs =====
   function viewLogs() {
     const page = el('div', { class: 'adm-page' });
-    page.appendChild(pageHeader('سجل الأنشطة', 'مراجعة جميع الأنشطة التي قام بها الموظفون', [
-      el('button', { class: 'btn btn-secondary' }, [svg('download'), document.createTextNode(' تصدير')]),
-    ]));
+    page.appendChild(pageHeader('سجل الأنشطة', 'مراجعة جميع الإجراءات الإدارية'));
     const tableWrap = el('div', { class: 'table-wrap' });
-    tableWrap.appendChild(el('div', { class: 'table-toolbar' }, [
-      el('div', { class: 'search', style: { flex: 1 } }, [el('input', { placeholder: 'بحث' })]),
-      el('select', {}, [el('option', {}, 'كل الأنواع'), el('option', {}, 'تسجيل دخول'), el('option', {}, 'حذف'), el('option', {}, 'تعديل')]),
-      el('input', { type: 'date' }),
-    ]));
     const table = el('table', { class: 'table' });
-    table.innerHTML = `<thead><tr><th>الموظف</th><th>الإجراء</th><th>الكيان</th><th>IP</th><th>الوقت</th></tr></thead>`;
-    const tb = el('tbody');
-    const acts = [
-      { a: 'سجّل الدخول', e: '-', t: 'login' },
-      { a: 'حذف فيديو', e: 'فيديو #' },
-      { a: 'حظر مستخدم', e: 'مستخدم @' },
-      { a: 'إنهاء بث مباشر', e: 'live #' },
-      { a: 'تعديل صلاحيات دور', e: 'دور: مشرف محتوى' },
-      { a: 'إضافة موظف', e: 'موظف جديد' },
-      { a: 'إرسال إشعار عام', e: 'تحديث جديد متاح' },
-      { a: 'تجاهل بلاغ', e: 'بلاغ #' },
-      { a: 'إعادة تعيين كلمة مرور', e: 'مستخدم @' },
-      { a: 'إنشاء حملة إعلانية', e: 'عرض رمضان' },
-    ];
-    for (let i = 0; i < 12; i++) {
-      const u = DB.users[i % DB.users.length];
-      const act = acts[i % acts.length];
-      const tr = el('tr');
-      tr.innerHTML = `
-        <td><div class="user-cell"><div class="av"><img src="${u.avatar}"></div><span>${u.name}</span></div></td>
-        <td><strong>${act.a}</strong></td>
-        <td class="muted">${act.e}${typeof act.e === 'string' && act.e.endsWith('#') ? (1000 + i) : ''}</td>
-        <td><code style="font-size:11px">192.168.1.${i + 12}</code></td>
-        <td>${i === 0 ? 'الآن' : 'منذ ' + (i + 1) + ' دقيقة'}</td>`;
-      tb.appendChild(tr);
-    }
-    table.appendChild(tb);
-    tableWrap.appendChild(table);
-    tableWrap.appendChild(pagination(1287, 12));
-    page.appendChild(tableWrap);
+    table.innerHTML = `<thead><tr><th>الموظف</th><th>الإجراء</th><th>الكيان</th><th>الوقت</th></tr></thead>`;
+    const tb = el('tbody'); table.appendChild(tb);
+    tableWrap.appendChild(table); page.appendChild(tableWrap);
+
+    (async () => {
+      tb.innerHTML = '<tr><td colspan="4" style="padding:30px;text-align:center" class="muted">جاري التحميل...</td></tr>';
+      try {
+        const logs = await window.API.adminFetchLogs({ limit: 200 });
+        tb.innerHTML = '';
+        if (!logs.length) { tb.innerHTML = '<tr><td colspan="4" class="table-empty">لم يتم تسجيل أي نشاط بعد</td></tr>'; return; }
+        logs.forEach(L => {
+          const tr = el('tr');
+          tr.innerHTML = `
+            <td><div class="user-cell"><div class="av"><img src="${(L.admin && L.admin.avatar_url) || ''}"></div><span>${(L.admin && L.admin.name) || '-'}</span></div></td>
+            <td><strong>${L.action.replace(/_/g, ' ')}</strong></td>
+            <td class="muted">${L.target_type || '-'} ${L.target_id ? '<code style="font-size:11px">' + (L.target_id + '').slice(0, 8) + '</code>' : ''}</td>
+            <td>${new Date(L.created_at).toLocaleString('ar-SA')}</td>`;
+          tb.appendChild(tr);
+        });
+      } catch (e) { tb.innerHTML = '<tr><td colspan="4" class="table-empty">' + e.message + '</td></tr>'; }
+    })();
     return page;
   }
 
@@ -1003,8 +1036,33 @@
     '/settings': () => buildShell('settings', viewSettings()),
   };
 
-  function render() {
+  let adminChecked = false;
+  let isAdmin = false;
+  async function render() {
     const path = (location.hash || '#/dashboard').slice(1) || '/dashboard';
+
+    // Auth + admin gate (skip on the login page itself)
+    if (path !== '/login-admin') {
+      if (!adminChecked) {
+        try {
+          const session = await window.SB.getSession();
+          if (!session) { location.hash = '#/login-admin'; return; }
+          isAdmin = await window.API.adminCheckIsAdmin();
+          adminChecked = true;
+        } catch (e) { console.warn('admin guard:', e); location.hash = '#/login-admin'; return; }
+      }
+      if (!isAdmin) {
+        root.innerHTML = '';
+        const card = el('div', { style: { maxWidth: '420px', margin: '60px auto', padding: '24px', background: '#fff', borderRadius: '12px', textAlign: 'center', border: '1px solid var(--border)' } }, [
+          el('h2', {}, 'وصول غير مسموح'),
+          el('p', { class: 'muted' }, 'هذا الحساب ليس لديه صلاحيات إدارية.'),
+          el('button', { class: 'btn', onclick: async () => { try { await window.SB.signOut(); } catch (e) {} location.hash = '#/login-admin'; location.reload(); } }, 'تسجيل الخروج والدخول كمشرف'),
+        ]);
+        root.appendChild(card);
+        return;
+      }
+    }
+
     const fn = routes[path] || routes['/dashboard'];
     root.innerHTML = '';
     try {

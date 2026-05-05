@@ -1,10 +1,26 @@
-name: iOS build & TestFlight upload
+name: iOS build & TestFlight upload (Capacitor)
+
+# Triggers:
+#   - Push a tag like v1.0.0 → release build → TestFlight upload
+#   - Manual run from GitHub UI with "upload" toggle
+#   - Push to main → unsigned build (verification only)
+#
+# Required GitHub secrets (Settings → Secrets → Actions):
+#   APPLE_TEAM_ID                 — your 10-char Team ID from developer.apple.com
+#   APP_STORE_CONNECT_KEY_ID      — Key ID from App Store Connect → Users and Access → Keys
+#   APP_STORE_CONNECT_ISSUER_ID   — Issuer ID on the same page
+#   APP_STORE_CONNECT_KEY_BASE64  — base64 of the .p8 file you downloaded
+#
+# To base64 the .p8 file on Windows PowerShell:
+#   [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\AuthKey_XXXXX.p8"))
 
 on:
   push:
     tags:
-      - 'v*'        # Tag like v1.0.0 → release build + TestFlight upload
-  workflow_dispatch: # Manual trigger from GitHub UI
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
     inputs:
       upload:
         description: 'Upload to TestFlight'
@@ -17,86 +33,139 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 60
     env:
-      FLUTTER_VERSION: '3.41.8'
-      XCODE_VERSION: '16.1'
-      # ── Required GitHub secrets (Settings → Secrets → Actions) ──
-      # APP_STORE_CONNECT_KEY_ID:        the "Key ID" from App Store Connect → Users and Access → Keys
-      # APP_STORE_CONNECT_ISSUER_ID:     the "Issuer ID" on the same page
-      # APP_STORE_CONNECT_KEY_BASE64:    base64 of the .p8 file you downloaded
-      # MATCH_PASSWORD:                  password used to encrypt fastlane match certs
-      # MATCH_GIT_URL:                   git URL of your private match certs repo (or use App Store Connect API for cert-less signing)
-      # MATCH_GIT_TOKEN:                 PAT to clone the match repo
       BUNDLE_ID: com.tenthtone.tenthTone
+      APP_NAME: 'Tenth Tone'
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      DO_UPLOAD: ${{ github.event.inputs.upload == 'true' || startsWith(github.ref, 'refs/tags/v') }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_${{ env.XCODE_VERSION }}.app
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+          node-version: 20
+          cache: 'npm'
 
-      - name: Show versions
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Add iOS platform (Capacitor)
+        run: npx cap add ios
+
+      - name: Sync web assets to iOS project
+        run: npx cap sync ios
+
+      - name: Set Team ID + Bundle ID in Xcode project
         run: |
-          flutter --version
-          xcodebuild -version
-          pod --version
-
-      - name: Install dependencies
-        working-directory: flutter
-        run: flutter pub get
-
-      - name: Analyze
-        working-directory: flutter
-        run: flutter analyze
+          PROJ="ios/App/App.xcodeproj/project.pbxproj"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Tenth Tone" "ios/App/App/Info.plist" 2>/dev/null || true
+          # Add permission strings (Apple requires these for any app that touches camera/mic/location)
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'نحتاج الكاميرا لتسجيل الفيديوهات'" "ios/App/App/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'نحتاج الكاميرا لتسجيل الفيديوهات'" "ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'نحتاج الميكروفون لتسجيل الصوت'" "ios/App/App/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'نحتاج الميكروفون لتسجيل الصوت'" "ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'لاختيار الفيديوهات والصور'" "ios/App/App/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'لاختيار الفيديوهات والصور'" "ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 'لحفظ الفيديوهات إلى المكتبة'" "ios/App/App/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 'لحفظ الفيديوهات إلى المكتبة'" "ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'لعرض موقع الأصدقاء على الخريطة'" "ios/App/App/Info.plist" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :NSLocationWhenInUseUsageDescription 'لعرض موقع الأصدقاء على الخريطة'" "ios/App/App/Info.plist"
 
       - name: Pod install
-        working-directory: flutter/ios
+        working-directory: ios/App
         run: pod install --repo-update
 
       - name: Decode App Store Connect API key
-        if: github.event.inputs.upload == 'true' || startsWith(github.ref, 'refs/tags/v')
+        if: env.DO_UPLOAD == 'true'
         run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
+          mkdir -p ~/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_KEY_BASE64 }}" | base64 --decode > ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8
 
-      # ── Code signing — uses App Store Connect API (no fastlane match required) ──
-      # Xcode 14+ supports automatic signing with API keys, no certs needed locally.
-      - name: Build IPA (signed)
-        if: github.event.inputs.upload == 'true' || startsWith(github.ref, 'refs/tags/v')
-        working-directory: flutter
+      - name: Auto-increment build number
+        if: env.DO_UPLOAD == 'true'
         run: |
-          flutter build ipa --release \
-            --export-options-plist=ios/exportOptions.plist
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          BUILD_NUM=$(date +%s)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" "ios/App/App/Info.plist"
+          echo "Build number: $BUILD_NUM"
 
-      # Fallback: unsigned build for verification only
-      - name: Build IPA (no codesign — verification only)
-        if: github.event.inputs.upload != 'true' && !startsWith(github.ref, 'refs/tags/v')
-        working-directory: flutter
-        run: flutter build ios --release --no-codesign
+      - name: Build archive (signed for App Store)
+        if: env.DO_UPLOAD == 'true'
+        working-directory: ios/App
+        run: |
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }} \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+            PRODUCT_BUNDLE_IDENTIFIER=${{ env.BUNDLE_ID }} \
+            CODE_SIGN_STYLE=Automatic \
+            archive | tee /tmp/xcodebuild.log
+
+      - name: Export IPA
+        if: env.DO_UPLOAD == 'true'
+        working-directory: ios/App
+        run: |
+          cat > /tmp/exportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+            <key>compileBitcode</key><false/>
+          </dict></plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -exportPath $RUNNER_TEMP/ipa \
+            -exportOptionsPlist /tmp/exportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Build (verification, no codesign)
+        if: env.DO_UPLOAD != 'true'
+        working-directory: ios/App
+        run: |
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath $RUNNER_TEMP/derived \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee /tmp/xcodebuild.log
 
       - name: Upload IPA artifact
-        if: github.event.inputs.upload == 'true' || startsWith(github.ref, 'refs/tags/v')
+        if: env.DO_UPLOAD == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
-          path: flutter/build/ios/ipa/*.ipa
-          retention-days: 14
+          path: ${{ runner.temp }}/ipa/*.ipa
+          retention-days: 30
 
       - name: Upload to TestFlight
-        if: github.event.inputs.upload == 'true' || startsWith(github.ref, 'refs/tags/v')
+        if: env.DO_UPLOAD == 'true'
         run: |
           xcrun altool --upload-app \
             --type ios \
-            --file flutter/build/ios/ipa/*.ipa \
+            --file "$RUNNER_TEMP/ipa/App.ipa" \
             --apiKey ${{ secrets.APP_STORE_CONNECT_KEY_ID }} \
             --apiIssuer ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+      - name: Upload xcodebuild log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: /tmp/xcodebuild.log

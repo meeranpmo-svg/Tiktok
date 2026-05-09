@@ -180,11 +180,25 @@
       verifyBtn.disabled = true;
       verifyBtn.textContent = 'جاري التحقق...';
       try {
-        const params = { token: code };
-        if (pending.email) { params.email = pending.email; params.type = 'email'; }
-        else if (pending.phone) { params.phone = pending.phone; params.type = 'sms'; }
-        else { otpError.textContent = 'انتهت الجلسة — أعد التسجيل'; otpError.hidden = false; verifyBtn.disabled = false; verifyBtn.textContent = 'تحقق ومتابعة'; return; }
-        await window.SB.verifyOtp(params);
+        if (!pending.email && !pending.phone) {
+          otpError.textContent = 'انتهت الجلسة — أعد التسجيل'; otpError.hidden = false;
+          verifyBtn.disabled = false; verifyBtn.textContent = 'تحقق ومتابعة'; return;
+        }
+        // Try the right OTP type. For email signup confirmation it's 'signup';
+        // for OTP login it's 'email'; for SMS it's 'sms'. Try in order.
+        const isPhone = !!pending.phone;
+        const tryTypes = isPhone ? ['sms'] : ['signup', 'email', 'magiclink'];
+        let lastErr = null;
+        for (const type of tryTypes) {
+          try {
+            const params = { token: code, type };
+            if (pending.email) params.email = pending.email; else params.phone = pending.phone;
+            await window.SB.verifyOtp(params);
+            lastErr = null;
+            break;
+          } catch (e) { lastErr = e; }
+        }
+        if (lastErr) throw lastErr;
         sessionStorage.removeItem('tt-pending-otp');
         go('/home');
       } catch (e) {

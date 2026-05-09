@@ -75,6 +75,12 @@
       el('div', { class: 'mark' }, 'T'),
       el('div', {}, [el('div', { class: 'name' }, 'Tenth Tone'), el('div', { class: 'sub' }, 'Admin Panel')]),
     ]));
+    // Back-to-app link (so admins can hop back to the user-facing PWA)
+    side.appendChild(el('a', {
+      href: '/',
+      class: 'adm-nav',
+      style: { display: 'flex', gap: '10px', alignItems: 'center', padding: '10px 12px', borderRadius: '10px', fontSize: '13.5px', color: 'var(--muted)', marginBottom: '8px', borderBottom: '1px solid var(--border)', paddingBottom: '14px' },
+    }, [svg('chevR'), el('span', {}, '← العودة إلى التطبيق')]));
     NAV.forEach(g => {
       side.appendChild(el('div', { class: 'adm-section-title' }, g.sec));
       const nav = el('nav', { class: 'adm-nav' });

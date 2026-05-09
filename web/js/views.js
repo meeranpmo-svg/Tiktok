@@ -1669,6 +1669,26 @@
       { icon: 'mail', label: 'تواصل معنا' },
       { icon: 'globe', label: 'الشروط وسياسة الخصوصية' },
     ]);
+
+    // Admin section — only renders if the signed-in user has is_admin = true
+    (async () => {
+      try {
+        if (!window.API) return;
+        const isAdmin = await window.API.adminCheckIsAdmin();
+        if (!isAdmin) return;
+        const adminSec = el('div', { class: 'settings-section', style: { background: 'var(--primary-soft)' } });
+        adminSec.appendChild(el('h3', { style: { color: 'var(--primary)' } }, 'الإدارة'));
+        const item = el('div', { class: 'settings-item', onclick: () => { window.location.href = '/admin'; } }, [
+          el('span', { class: 'si-icon', style: { background: 'var(--primary)', color: '#fff' }, html: icons.settings }),
+          el('span', { class: 'si-text', style: { fontWeight: 700 } }, 'فتح لوحة التحكم الإدارية'),
+          el('span', { class: 'chev', html: icons.chevL }),
+        ]);
+        adminSec.appendChild(item);
+        // Insert before the logout section
+        root.insertBefore(adminSec, root.lastElementChild);
+      } catch (e) { /* not admin or API failed */ }
+    })();
+
     const logout = el('div', { class: 'settings-section' });
     logout.appendChild(el('div', { class: 'settings-item', onclick: async () => { try { await window.SB.signOut(); } catch (e) {} go('/login'); toast('تم تسجيل الخروج'); } }, [
       el('span', { class: 'si-text', style: { color: 'var(--danger)', textAlign: 'center', fontWeight: 700 } }, 'تسجيل الخروج'),

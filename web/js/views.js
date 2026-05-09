@@ -292,8 +292,7 @@
     const tabs = el('div', { class: 'feed-tabs' }, [
       el('button', { class: 'feed-tab' + (tab === 'following' ? ' active' : ''), onclick: () => go('/home?tab=following') }, 'متابعون'),
       el('button', { class: 'feed-tab' + (tab === 'foryou' ? ' active' : ''), onclick: () => go('/home?tab=foryou') }, 'لك'),
-      // Live tab hidden until LiveKit / Agora is configured
-      // el('button', { class: 'feed-tab', onclick: () => go('/live/host-list') }, 'مباشر'),
+      el('button', { class: 'feed-tab', onclick: () => go('/live/host-list') }, 'مباشر'),
     ]);
     root.appendChild(tabs);
 
@@ -488,8 +487,7 @@
     [
       { icon: 'rec', label: 'تسجيل فيديو', desc: 'استخدم الكاميرا لتصوير فيديو قصير', action: () => go('/camera') },
       { icon: 'up', label: 'رفع من الجهاز', desc: 'اختر فيديو أو صورة من المعرض', action: () => fileInput.click() },
-      // Live broadcast hidden until streaming provider (LiveKit/Agora) is wired
-      // { icon: 'live', label: 'بث مباشر', desc: 'تواصل مع جمهورك مباشرة', action: () => go('/live/start') },
+      { icon: 'live', label: 'بث مباشر', desc: 'تواصل مع جمهورك مباشرة', action: () => go('/live/start') },
       { icon: 'template', label: 'قوالب جاهزة', desc: 'ابدأ من قالب وعدّله', action: () => go('/camera') },
     ].forEach(item => {
       root.appendChild(el('div', { class: 'create-card', onclick: item.action }, [

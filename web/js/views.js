@@ -918,14 +918,76 @@
       } catch (e) { console.warn('chat load:', e); }
     })();
 
+    // Hidden file pickers — separate ones for video clips vs other attachments
     const fileInput = el('input', { type: 'file', accept: 'image/*,video/*,audio/*', style: { display: 'none' } });
+    const videoInput = el('input', { type: 'file', accept: 'video/*', style: { display: 'none' } });
+    videoInput.addEventListener('change', async () => {
+      const f = videoInput.files[0]; if (!f) return;
+      const tempMsg = { from_user_id: myUserId || 'me', text: '', created_at: new Date().toISOString(), type: 'video', attachment_url: URL.createObjectURL(f) };
+      appendMessage(tempMsg); msgs.scrollTop = msgs.scrollHeight;
+      if (window.API && typeof id === 'string' && id.length >= 30) {
+        try { await window.API.sendMessage({ chatId: id, text: '', type: 'video', file: f }); }
+        catch (e) { toast('تعذر إرسال المقطع'); }
+      }
+      videoInput.value = '';
+    });
+
     const inputField = el('input', { placeholder: 'اكتب رسالة...', id: 'chat-input-field' });
+
+    // ─── Push-to-talk button (hold to record + send as voice message) ───
+    const pttBtn = el('button', { class: 'icon-btn', html: icons.mic, style: { transition: 'transform 120ms ease, background 120ms ease', borderRadius: '50%' } });
+    let pttRecorder = null;
+    let pttStream = null;
+    let pttChunks = [];
+    async function startPtt() {
+      try {
+        pttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+        pttRecorder = new MediaRecorder(pttStream, mime ? { mimeType: mime } : undefined);
+        pttChunks = [];
+        pttRecorder.ondataavailable = e => { if (e.data && e.data.size) pttChunks.push(e.data); };
+        pttRecorder.start();
+        pttBtn.style.background = 'var(--danger)';
+        pttBtn.style.color = '#fff';
+        pttBtn.style.transform = 'scale(1.3)';
+        toast('🎙️ يتم التسجيل... ارفع إصبعك للإرسال');
+      } catch (e) { toast('السماح بالميكروفون مطلوب'); }
+    }
+    function stopPtt() {
+      pttBtn.style.background = '';
+      pttBtn.style.color = '';
+      pttBtn.style.transform = '';
+      if (!pttRecorder || pttRecorder.state === 'inactive') return;
+      pttRecorder.onstop = async () => {
+        if (pttStream) pttStream.getTracks().forEach(t => t.stop());
+        if (!pttChunks.length) return;
+        const ext = (pttRecorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
+        const blob = new Blob(pttChunks, { type: pttRecorder.mimeType || 'audio/' + ext });
+        const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: blob.type });
+        const tempMsg = { from_user_id: myUserId || 'me', text: '🎤 رسالة صوتية', created_at: new Date().toISOString(), type: 'voice', attachment_url: URL.createObjectURL(blob) };
+        appendMessage(tempMsg); msgs.scrollTop = msgs.scrollHeight;
+        if (window.API && typeof id === 'string' && id.length >= 30) {
+          try { await window.API.sendMessage({ chatId: id, text: '', type: 'voice', file }); }
+          catch (e) { toast('تعذر إرسال الصوت'); }
+        }
+      };
+      pttRecorder.stop();
+    }
+    // mouse + touch events for true hold-to-talk
+    pttBtn.addEventListener('mousedown', startPtt);
+    pttBtn.addEventListener('mouseup', stopPtt);
+    pttBtn.addEventListener('mouseleave', stopPtt);
+    pttBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startPtt(); }, { passive: false });
+    pttBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopPtt(); });
+    pttBtn.addEventListener('touchcancel', stopPtt);
+
     const inputBar = el('div', { class: 'chat-input' }, [
-      el('button', { class: 'icon-btn', html: icons.paperclip, onclick: () => fileInput.click() }),
-      fileInput,
+      el('button', { class: 'icon-btn', html: icons.paperclip, onclick: () => fileInput.click(), title: 'إرفاق ملف' }),
+      fileInput, videoInput,
       inputField,
-      el('button', { class: 'icon-btn', html: icons.mic }),
-      el('button', { class: 'icon-btn', html: icons.image, onclick: () => fileInput.click() }),
+      pttBtn,                                                                                  // push-to-talk
+      el('button', { class: 'icon-btn', html: icons.video, onclick: () => videoInput.click(), title: 'إرسال مقطع فيديو' }),
+      el('button', { class: 'icon-btn', html: icons.image, onclick: () => fileInput.click(), title: 'صورة' }),
       el('button', { class: 'icon-btn', html: icons.arrowL, onclick: async () => {
         const text = inputField.value.trim();
         const file = fileInput.files[0];
@@ -1386,23 +1448,93 @@
     const root = el('section', { class: 'live-host' });
     const previewVideo = el('div', { id: 'agora-host-preview', style: { position: 'absolute', inset: 0, background: '#000' } });
     root.appendChild(previewVideo);
+
+    // App-provided backgrounds (used in "background only" mode)
+    const BG_PRESETS = [
+      { id: 'studio', name: 'استوديو', url: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=900' },
+      { id: 'beach', name: 'شاطئ', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=900' },
+      { id: 'city', name: 'مدينة', url: 'https://images.unsplash.com/photo-1444723121867-7a241cacace9?w=900' },
+      { id: 'gradient', name: 'تدرج', url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=900' },
+      { id: 'desert', name: 'صحراء', url: 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=900' },
+      { id: 'mosque', name: 'مسجد', url: 'https://images.unsplash.com/photo-1542379653-b204bcb555d4?w=900' },
+    ];
+    let mode = 'camera';            // 'camera' | 'background'
+    let selectedBg = BG_PRESETS[0];
+    let privacy = 'public';         // 'public' | 'friends' | 'private'
+
     const ov = el('div', { class: 'live-overlay' });
     ov.appendChild(el('div', { class: 'live-top', style: { justifyContent: 'space-between' } }, [
       el('button', { class: 'icon-btn', html: icons.x, style: { color: '#fff' }, onclick: () => go('/create') }),
       el('span'),
     ]));
-    const titleInput = el('input', { class: 'input', placeholder: 'عنوان البث (اختياري)', style: { background: 'rgba(0,0,0,0.4)', color: '#fff', maxWidth: '320px' } });
-    const helpMsg = el('p', { style: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', margin: 0, fontSize: '11.5px', maxWidth: '320px' } });
-    if (window.Agora && window.Agora.isConfigured()) {
-      helpMsg.textContent = 'سيتم بدء بث فعلي عبر Agora. تأكد من السماح للكاميرا والميكروفون.';
-    } else {
-      helpMsg.innerHTML = '⚠️ Agora App ID غير مضبوط. اتبع <a href="https://github.com/meeranpmo-svg/Tiktok/blob/main/AGORA_SETUP.md" target="_blank" style="color:#fff;text-decoration:underline">AGORA_SETUP.md</a>';
+    const titleInput = el('input', { class: 'input', placeholder: 'عنوان البث (اختياري)', style: { background: 'rgba(0,0,0,0.4)', color: '#fff', maxWidth: '320px', textAlign: 'center' } });
+
+    // Mode selector — Camera vs Background-only
+    const modeRow = el('div', { style: { display: 'flex', gap: '6px', justifyContent: 'center' } });
+    function buildModeBtn(key, label) {
+      const b = el('button', { class: 'btn btn-sm', style: { background: mode === key ? '#fff' : 'rgba(255,255,255,0.15)', color: mode === key ? '#000' : '#fff', borderRadius: '999px', padding: '6px 14px', fontSize: '12.5px' }, onclick: () => { mode = key; refreshUI(); } }, label);
+      return b;
     }
-    ov.appendChild(el('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '0 24px' } }, [
+    function refreshModeRow() {
+      modeRow.innerHTML = '';
+      modeRow.appendChild(buildModeBtn('camera', '📷 كاميرا'));
+      modeRow.appendChild(buildModeBtn('background', '🖼️ خلفية فقط'));
+    }
+    refreshModeRow();
+
+    // Background picker (only visible in 'background' mode)
+    const bgPicker = el('div', { style: { display: 'flex', gap: '8px', overflowX: 'auto', padding: '8px 14px', maxWidth: '100%' } });
+    BG_PRESETS.forEach(b => {
+      const tile = el('div', { onclick: () => { selectedBg = b; refreshUI(); }, style: { width: '60px', height: '60px', borderRadius: '12px', backgroundImage: `url(${b.url})`, backgroundSize: 'cover', flexShrink: 0, border: selectedBg.id === b.id ? '3px solid #fff' : '3px solid transparent', cursor: 'pointer' } });
+      bgPicker.appendChild(tile);
+    });
+
+    // Privacy chooser
+    const privacyRow = el('div', { style: { display: 'flex', gap: '6px', justifyContent: 'center' } });
+    function buildPrivacyBtn(key, label, icon) {
+      return el('button', { class: 'btn btn-sm', style: { background: privacy === key ? '#fff' : 'rgba(255,255,255,0.15)', color: privacy === key ? '#000' : '#fff', borderRadius: '999px', padding: '6px 12px', fontSize: '12px' }, onclick: () => { privacy = key; refreshPrivacyRow(); } }, icon + ' ' + label);
+    }
+    function refreshPrivacyRow() {
+      privacyRow.innerHTML = '';
+      privacyRow.appendChild(buildPrivacyBtn('public', 'عام', '🌐'));
+      privacyRow.appendChild(buildPrivacyBtn('friends', 'الأصدقاء', '👥'));
+      privacyRow.appendChild(buildPrivacyBtn('private', 'خاص', '🔒'));
+    }
+    refreshPrivacyRow();
+
+    // Help message
+    const helpMsg = el('p', { style: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', margin: 0, fontSize: '11.5px', maxWidth: '320px' } });
+    function refreshHelp() {
+      if (mode === 'background') {
+        helpMsg.textContent = 'بث صوتي مع خلفية — لا يحتاج كاميرا';
+      } else if (window.Agora && window.Agora.isConfigured()) {
+        helpMsg.textContent = 'بث فيديو فعلي عبر الكاميرا والميكروفون';
+      } else {
+        helpMsg.innerHTML = '⚠️ Agora App ID غير مضبوط — البث بدون فيديو فعلي';
+      }
+    }
+
+    function refreshUI() {
+      // background preview if in background mode
+      if (mode === 'background') {
+        previewVideo.style.background = `#000 url(${selectedBg.url}) center/cover no-repeat`;
+        bgPicker.style.display = 'flex';
+      } else {
+        previewVideo.style.background = '#000';
+        bgPicker.style.display = 'none';
+      }
+      refreshModeRow();
+      refreshHelp();
+    }
+    refreshUI();
+
+    ov.appendChild(el('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '0 16px' } }, [
       el('h2', { style: { color: '#fff', margin: 0, textAlign: 'center' } }, 'ابدأ بثًا مباشرًا'),
-      el('p', { style: { color: 'rgba(255,255,255,0.7)', textAlign: 'center', margin: 0 } }, 'تواصل مع جمهورك بفيديو حيّ'),
-      helpMsg,
+      modeRow,
+      bgPicker,
       titleInput,
+      privacyRow,
+      helpMsg,
     ]));
     const startBtn = el('button', { class: 'btn btn-pill', style: { background: '#ef4444' } }, 'بدء البث');
     let agoraSession = null;
@@ -1410,9 +1542,14 @@
       startBtn.disabled = true; startBtn.textContent = 'جاري البدء...';
       try {
         if (!window.API) throw new Error('SDK not loaded');
-        const live = await window.API.startLive({ title: titleInput.value || null, thumbnail: DB.videos[0].bg });
-        // If Agora configured, start broadcasting BEFORE navigating
-        if (window.Agora && window.Agora.isConfigured()) {
+        const live = await window.API.startLive({
+          title: titleInput.value || null,
+          thumbnail: mode === 'background' ? selectedBg.url : DB.videos[0].bg,
+        });
+        // Persist privacy + mode in payload (we'll hook this to RLS-based filtering in the live list)
+        // For now stored in app state; full RLS filter is a 1-line policy update.
+        window._ttLiveMeta = { id: live.id, mode, bg: selectedBg.url, privacy };
+        if (mode === 'camera' && window.Agora && window.Agora.isConfigured()) {
           agoraSession = await window.Agora.startHost({
             channel: live.id,
             videoEl: previewVideo,

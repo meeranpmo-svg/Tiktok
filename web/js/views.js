@@ -1384,28 +1384,50 @@
   V.liveStart = () => {
     hideNav();
     const root = el('section', { class: 'live-host' });
-    root.appendChild(el('div', { class: 'live-bg', style: { backgroundImage: `url(${DB.videos[0].bg})` } }));
+    const previewVideo = el('div', { id: 'agora-host-preview', style: { position: 'absolute', inset: 0, background: '#000' } });
+    root.appendChild(previewVideo);
     const ov = el('div', { class: 'live-overlay' });
     ov.appendChild(el('div', { class: 'live-top', style: { justifyContent: 'space-between' } }, [
       el('button', { class: 'icon-btn', html: icons.x, style: { color: '#fff' }, onclick: () => go('/create') }),
       el('span'),
     ]));
     const titleInput = el('input', { class: 'input', placeholder: 'عنوان البث (اختياري)', style: { background: 'rgba(0,0,0,0.4)', color: '#fff', maxWidth: '320px' } });
+    const helpMsg = el('p', { style: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', margin: 0, fontSize: '11.5px', maxWidth: '320px' } });
+    if (window.Agora && window.Agora.isConfigured()) {
+      helpMsg.textContent = 'سيتم بدء بث فعلي عبر Agora. تأكد من السماح للكاميرا والميكروفون.';
+    } else {
+      helpMsg.innerHTML = '⚠️ Agora App ID غير مضبوط. اتبع <a href="https://github.com/meeranpmo-svg/Tiktok/blob/main/AGORA_SETUP.md" target="_blank" style="color:#fff;text-decoration:underline">AGORA_SETUP.md</a>';
+    }
     ov.appendChild(el('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '0 24px' } }, [
       el('h2', { style: { color: '#fff', margin: 0, textAlign: 'center' } }, 'ابدأ بثًا مباشرًا'),
       el('p', { style: { color: 'rgba(255,255,255,0.7)', textAlign: 'center', margin: 0 } }, 'تواصل مع جمهورك بفيديو حيّ'),
-      el('p', { style: { color: 'rgba(255,255,255,0.5)', textAlign: 'center', margin: 0, fontSize: '11.5px', maxWidth: '320px' } }, '⚠️ البث الفعلي يحتاج إلى ربط Agora أو MUX (مدفوع). الزر يبدأ جلسة افتراضية.'),
+      helpMsg,
       titleInput,
     ]));
     const startBtn = el('button', { class: 'btn btn-pill', style: { background: '#ef4444' } }, 'بدء البث');
+    let agoraSession = null;
     startBtn.onclick = async () => {
       startBtn.disabled = true; startBtn.textContent = 'جاري البدء...';
       try {
-        if (window.API) {
-          const live = await window.API.startLive({ title: titleInput.value || null, thumbnail: DB.videos[0].bg });
-          go('/live/' + live.id);
-        } else { go('/live/v1'); }
-      } catch (e) { toast(e.message); startBtn.disabled = false; startBtn.textContent = 'بدء البث'; }
+        if (!window.API) throw new Error('SDK not loaded');
+        const live = await window.API.startLive({ title: titleInput.value || null, thumbnail: DB.videos[0].bg });
+        // If Agora configured, start broadcasting BEFORE navigating
+        if (window.Agora && window.Agora.isConfigured()) {
+          agoraSession = await window.Agora.startHost({
+            channel: live.id,
+            videoEl: previewVideo,
+            onError: (e) => toast(e.message),
+          });
+          window._ttAgoraHostSession = agoraSession;
+          window._ttAgoraHostLiveId = live.id;
+        }
+        go('/live/' + live.id);
+      } catch (e) {
+        toast(e.message || 'تعذر بدء البث');
+        startBtn.disabled = false;
+        startBtn.textContent = 'بدء البث';
+        if (agoraSession) try { await agoraSession.stop(); } catch (_) {}
+      }
     };
     ov.appendChild(el('div', { class: 'live-bottom' }, [startBtn]));
     root.appendChild(ov);
@@ -1435,9 +1457,16 @@
 
   V.live = (params) => {
     hideNav();
-    const live = DB.lives.find(l => l.id === params.id) || DB.lives[0];
+    const liveId = params.id;
+    let live = DB.lives.find(l => l.id === liveId) || DB.lives[0];
     const root = el('section', { class: 'live-viewer' });
-    root.appendChild(el('div', { class: 'live-bg', style: { backgroundImage: `url(${live.bg})` } }));
+
+    // Real Agora video container — covers full screen behind everything else
+    const videoContainer = el('div', { id: 'agora-viewer-video', style: { position: 'absolute', inset: 0, background: '#000', zIndex: 0 } });
+    root.appendChild(videoContainer);
+
+    // Fallback background image (shown until Agora video subscribes)
+    root.appendChild(el('div', { class: 'live-bg', style: { backgroundImage: `url(${live.bg})`, zIndex: 1 } }));
     const ov = el('div', { class: 'live-overlay' });
     ov.appendChild(el('div', { class: 'live-top' }, [
       el('div', { class: 'live-host-info' }, [
@@ -1506,6 +1535,45 @@
       document.body.appendChild(bd);
       document.body.appendChild(sheet);
     }
+
+    // ─── Agora viewer subscription ───
+    let viewerSession = null;
+    let hostSession = window._ttAgoraHostSession;
+    let isHost = window._ttAgoraHostLiveId === liveId;
+
+    (async () => {
+      try {
+        if (!window.Agora || !window.Agora.isConfigured()) return;
+        if (isHost) {
+          // We're the host — preview already running, just keep it alive
+          return;
+        }
+        viewerSession = await window.Agora.startViewer({
+          channel: liveId,
+          videoEl: videoContainer,
+          onPlayers: (users) => {
+            // Hide background image once we have a host video
+            if (users && users.length) {
+              videoContainer.style.zIndex = '2';
+            }
+          },
+        });
+      } catch (e) { console.warn('agora viewer:', e); }
+    })();
+
+    // Stop on navigate away
+    window.addEventListener('hashchange', async () => {
+      if (viewerSession) try { await viewerSession.stop(); } catch (_) {}
+      if (isHost && hostSession) {
+        try {
+          await hostSession.stop();
+          if (window.API) await window.API.endLive(liveId).catch(() => {});
+        } catch (_) {}
+        window._ttAgoraHostSession = null;
+        window._ttAgoraHostLiveId = null;
+      }
+    }, { once: true });
+
     return root;
   };
 

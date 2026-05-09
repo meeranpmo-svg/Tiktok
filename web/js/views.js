@@ -1085,6 +1085,39 @@
         if (messageBtn) messageBtn.onclick = async () => {
           try { const id = await window.API.openOrCreateDm(p.id); go('/chat/' + id); } catch (e) { toast('تعذر فتح المحادثة'); }
         };
+
+        // Add "Request to track location" button (3rd action)
+        const actionsRow = fresh.querySelector('.profile-actions');
+        if (actionsRow && p.id) {
+          const trackBtn = el('button', { class: 'btn btn-secondary', style: { marginTop: '8px', width: '100%' } });
+          let permitStatus = await window.API.fetchPermitStatus(p.id);
+          function setLabel() {
+            if (!permitStatus) trackBtn.textContent = '📍 طلب تتبع الموقع';
+            else if (permitStatus.status === 'pending') trackBtn.textContent = '⏳ في انتظار الموافقة';
+            else if (permitStatus.status === 'approved') trackBtn.textContent = '✅ يتم التتبع — اضغط للإلغاء';
+            else if (permitStatus.status === 'denied') trackBtn.textContent = '❌ تم الرفض — أعد الطلب';
+            else trackBtn.textContent = '📍 طلب تتبع الموقع';
+          }
+          setLabel();
+          trackBtn.onclick = async () => {
+            try {
+              if (permitStatus && permitStatus.status === 'approved') {
+                await window.API.revokeLocationPermit(p.id);
+                toast('تم إلغاء التتبع');
+              } else {
+                await window.API.requestLocationPermit(p.id);
+                toast('تم إرسال طلب التتبع — بانتظار الموافقة');
+              }
+              permitStatus = await window.API.fetchPermitStatus(p.id);
+              setLabel();
+            } catch (e) { toast(e.message || 'خطأ'); }
+          };
+          // wrap actionsRow + button in a flex column
+          const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '320px', width: '100%', alignItems: 'center' } });
+          actionsRow.parentNode.insertBefore(wrap, actionsRow);
+          wrap.appendChild(actionsRow);
+          wrap.appendChild(trackBtn);
+        }
         const grid = fresh.querySelector('.video-grid');
         if (videos.length && grid) {
           grid.innerHTML = '';
@@ -1269,6 +1302,9 @@
       if (n.type === 'comment') return 'علّق: "' + ((n.payload && n.payload.text) || '') + '"';
       if (n.type === 'mention') return 'ذكرك في تعليق';
       if (n.type === 'message') return 'أرسل رسالة';
+      if (n.type === 'system' && n.payload && n.payload.kind === 'location_request') return 'طلب تتبع موقعك';
+      if (n.type === 'system' && n.payload && n.payload.kind === 'location_approved') return 'وافق على طلب تتبع موقعه';
+      if (n.type === 'system' && n.payload && n.payload.kind === 'location_denied') return 'رفض طلب تتبع موقعه';
       return (n.payload && n.payload.text) || '';
     }
     function render(items) {
@@ -1289,6 +1325,16 @@
             if (!window.API || !n.actor) return;
             try { await window.API.follow(n.actor.id); toast('تتم المتابعة'); } catch (e) {}
           } }, 'متابعة') : null,
+          // For location_request — show approve/deny buttons inline
+          (n.type === 'system' && n.payload && n.payload.kind === 'location_request' && n.payload.permit_id) ?
+            el('div', { style: { display: 'flex', gap: '4px', flexShrink: 0 } }, [
+              el('button', { class: 'btn btn-sm', style: { width: 'auto', background: 'var(--success)' }, onclick: async (e) => {
+                try { await window.API.respondToLocationPermit(n.payload.permit_id, 'approved'); toast('وافقت على المشاركة'); e.currentTarget.parentElement.remove(); } catch (err) { toast('خطأ'); }
+              } }, '✓ موافقة'),
+              el('button', { class: 'btn btn-sm', style: { width: 'auto', background: 'var(--bg-2)', color: 'var(--text)' }, onclick: async (e) => {
+                try { await window.API.respondToLocationPermit(n.payload.permit_id, 'denied'); toast('تم الرفض'); e.currentTarget.parentElement.remove(); } catch (err) { toast('خطأ'); }
+              } }, '✗ رفض'),
+            ]) : null,
         ].filter(Boolean)));
       });
     }
@@ -1629,10 +1675,66 @@
     ].forEach(c => cmts.appendChild(el('div', { class: 'live-cmt' }, [el('span', { class: 'u' }, c.u + ':'), document.createTextNode(' ' + c.t)])));
     ov.appendChild(cmts);
 
+    // Floating heart layer (TikTok-style)
+    const floatLayer = el('div', { class: 'live-float-layer', style: { position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 5 } });
+    ov.appendChild(floatLayer);
+
+    function floatHeart(emoji = '❤️') {
+      const h = el('div', { textContent: emoji, style: {
+        position: 'absolute', bottom: '70px', insetInlineEnd: (40 + Math.random() * 40) + 'px',
+        fontSize: '28px', opacity: '1', transition: 'transform 2.4s ease-out, opacity 2.4s ease-out',
+        transform: 'translateY(0) scale(1)', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.6))',
+      } });
+      floatLayer.appendChild(h);
+      requestAnimationFrame(() => {
+        h.style.transform = `translateY(-${300 + Math.random() * 200}px) translateX(${(Math.random() - 0.5) * 80}px) scale(${0.8 + Math.random() * 0.6})`;
+        h.style.opacity = '0';
+      });
+      setTimeout(() => h.remove(), 2500);
+    }
+
+    function floatGift(emoji, name, fromName) {
+      // Big animated banner that flies in from the bottom-end of the screen
+      const banner = el('div', { style: {
+        position: 'absolute', bottom: '100px', insetInlineEnd: '14px',
+        background: 'linear-gradient(90deg, rgba(255,215,0,0.95), rgba(255,140,0,0.95))',
+        color: '#000', padding: '8px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: 700,
+        boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', gap: '8px', alignItems: 'center',
+        transform: 'translateX(120%)', transition: 'transform 360ms ease-out, opacity 320ms ease-in',
+        zIndex: 6,
+      } }, [
+        el('span', { style: { fontSize: '24px' } }, emoji),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '0' } }, [
+          el('div', {}, fromName || 'مستخدم'),
+          el('div', { style: { fontSize: '11px', fontWeight: 500, opacity: 0.85 } }, 'أرسل ' + name),
+        ]),
+      ]);
+      floatLayer.appendChild(banner);
+      requestAnimationFrame(() => { banner.style.transform = 'translateX(0)'; });
+      setTimeout(() => { banner.style.opacity = '0'; }, 3500);
+      setTimeout(() => banner.remove(), 4000);
+
+      // Big emoji flying up the center
+      const big = el('div', { textContent: emoji, style: {
+        position: 'absolute', bottom: '40%', insetInlineStart: '50%', transform: 'translateX(-50%) scale(0.3)',
+        fontSize: '120px', opacity: '0', transition: 'all 1.6s cubic-bezier(0.34, 1.56, 0.64, 1)', zIndex: 5,
+        filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.5))',
+      } });
+      floatLayer.appendChild(big);
+      requestAnimationFrame(() => {
+        big.style.opacity = '1'; big.style.transform = 'translateX(-50%) scale(1.2)';
+      });
+      setTimeout(() => { big.style.opacity = '0'; big.style.transform = 'translateX(-50%) scale(1.6) translateY(-100px)'; }, 1100);
+      setTimeout(() => big.remove(), 1700);
+    }
+
     ov.appendChild(el('div', { class: 'live-bottom' }, [
       el('input', { placeholder: 'أرسل تعليقًا...' }),
       el('button', { class: 'icon-btn', html: icons.gift, onclick: () => openGiftSheet() }),
-      el('button', { class: 'icon-btn', html: icons.heart }),
+      el('button', { class: 'icon-btn', html: icons.heart, onclick: () => {
+        // Emit a few hearts (TikTok rapid-tap feel)
+        for (let i = 0; i < 4; i++) setTimeout(floatHeart, i * 80, ['❤️', '💖', '💕', '💗', '✨'][Math.floor(Math.random() * 5)]);
+      } }),
       el('button', { class: 'icon-btn', html: icons.share, onclick: () => go('/share/' + live.id) }),
     ]));
     root.appendChild(ov);
@@ -1660,7 +1762,9 @@
             await window.API.sendGift({ toUserId: live.host.id, giftId: g.id, liveStreamId: typeof live.id === 'string' && live.id.length > 30 ? live.id : null });
           }
           balance -= g.price; balLabel.textContent = '🪙 ' + balance;
-          toast('تم إرسال ' + g.name + ' ' + g.emoji);
+          // Big TikTok-style gift animation
+          const me = (window.SB && (await window.SB.getUser())) || null;
+          floatGift(g.emoji, g.name, (me && me.user_metadata && me.user_metadata.name) || 'أنت');
           close();
         } catch (e) { toast(e.message || 'تعذر إرسال الهدية'); }
       } }, [
@@ -1768,15 +1872,29 @@
           try { await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true }); } catch (e) {}
         }, () => {}, { maximumAge: 30000 });
 
-        // Render friends
+        // Render friends + approved-tracked users
         async function refresh() {
           try {
-            const locs = await window.API.fetchFriendLocations();
+            const [friends, tracked] = await Promise.all([
+              window.API.fetchFriendLocations(),
+              window.API.fetchTrackedLocations(),
+            ]);
             // remove existing pins (except controls)
             root.querySelectorAll('.map-pin').forEach(n => n.remove());
-            locs.forEach(l => {
+            const trackedIds = new Set(tracked.map(t => t.user_id));
+            // Friends (green)
+            friends.forEach(l => {
+              if (l.lat == null || l.lng == null || trackedIds.has(l.user_id)) return;
+              const pin = pinEl(l.profiles || { id: l.user_id }, l.lat, l.lng);
+              root.appendChild(pin);
+            });
+            // Tracked-via-permit (purple border to distinguish)
+            tracked.forEach(l => {
               if (l.lat == null || l.lng == null) return;
-              root.appendChild(pinEl(l.profiles || { id: l.user_id }, l.lat, l.lng));
+              const pin = pinEl(l.profiles || { id: l.user_id }, l.lat, l.lng);
+              const av = pin.querySelector('.avatar');
+              if (av) av.style.borderColor = 'var(--primary)';
+              root.appendChild(pin);
             });
           } catch (e) {}
         }
@@ -1862,31 +1980,94 @@
       ])));
       root.appendChild(s);
     }
+    function makeToggle(initialOn, onChange) {
+      const t = el('div', { class: 'toggle' + (initialOn ? ' on' : ''), onclick: async e => {
+        e.stopPropagation();
+        t.classList.toggle('on');
+        const on = t.classList.contains('on');
+        try { await onChange(on); }
+        catch (err) { t.classList.toggle('on'); toast(err.message || 'تعذر التحديث'); }
+      } });
+      return t;
+    }
+
+    // ── Account ──
     section('الحساب', [
       { icon: 'user', label: 'تعديل البروفايل', onclick: () => go('/profile/edit') },
-      { icon: 'lock', label: 'الخصوصية' },
+      { icon: 'lock', label: 'تغيير كلمة المرور', onclick: async () => {
+        const np = prompt('كلمة المرور الجديدة (8 أحرف على الأقل):');
+        if (!np) return;
+        if (np.length < 8) return toast('كلمة المرور قصيرة جدًا');
+        try { await window.SB.updatePassword(np); toast('تم التحديث'); }
+        catch (e) { toast(e.message); }
+      } },
+      { icon: 'mail', label: 'تغيير البريد الإلكتروني', onclick: async () => {
+        const e = prompt('البريد الإلكتروني الجديد:');
+        if (!e) return;
+        try { const c = await window.SB.client(); await c.auth.updateUser({ email: e.trim() }); toast('تحقق من بريدك الجديد للتأكيد'); }
+        catch (err) { toast(err.message); }
+      } },
       { icon: 'wallet', label: 'المحفظة', onclick: () => go('/wallet') },
-      { icon: 'bell', label: 'الإشعارات' },
     ]);
+
+    // ── Privacy ──
+    section('الخصوصية والأمان', [
+      { icon: 'eye', label: 'الحساب خاص', right: makeToggle(false, async () => toast('قريبًا — يحتاج عمود في profiles')) },
+      { icon: 'user', label: 'من يمكنه مراسلتي', right: el('span', { class: 'muted' }, 'الجميع') },
+      { icon: 'comment', label: 'من يمكنه التعليق', right: el('span', { class: 'muted' }, 'الجميع') },
+      { icon: 'lock', label: 'المستخدمون المحظورون', onclick: () => toast('قريبًا — قائمة الحظر') },
+      { icon: 'flag', label: 'مراجعة طلبات تتبع موقعي', onclick: async () => {
+        try {
+          const incoming = await window.API.fetchIncomingPermits();
+          if (!incoming.length) return toast('لا توجد طلبات جديدة');
+          toast(incoming.length + ' طلب — راجعها من شاشة الإشعارات');
+        } catch (e) { toast(e.message); }
+      } },
+    ]);
+
+    // ── Notifications ──
+    section('الإشعارات', [
+      { icon: 'heart', label: 'الإعجابات', right: makeToggle(true, async () => {}) },
+      { icon: 'comment', label: 'التعليقات', right: makeToggle(true, async () => {}) },
+      { icon: 'user', label: 'المتابعون الجدد', right: makeToggle(true, async () => {}) },
+      { icon: 'mail', label: 'الرسائل', right: makeToggle(true, async () => {}) },
+      { icon: 'video', label: 'البثوث المباشرة', right: makeToggle(true, async () => {}) },
+      { icon: 'gift', label: 'الهدايا', right: makeToggle(true, async () => {}) },
+    ]);
+
+    // ── Content & Display ──
     section('المحتوى والعرض', [
       { icon: 'globe', label: 'اللغة', right: el('span', { class: 'muted' }, 'العربية') },
-      { icon: 'eye', label: 'إعدادات النشاط' },
-      { icon: 'map', label: 'خريطة الأصدقاء', onclick: () => go('/map') },
-      { icon: 'map', label: 'مشاركة موقعي', right: el('div', { class: 'toggle on', onclick: async e => {
-        e.stopPropagation();
-        const tg = e.currentTarget;
-        tg.classList.toggle('on');
-        const enabled = tg.classList.contains('on');
-        if (window.API) {
-          try { await window.API.setLocationVisibility(enabled ? 'friends' : 'none'); toast(enabled ? 'تمت مشاركة موقعك مع متابَعيك' : 'تم إيقاف المشاركة'); }
-          catch (err) { tg.classList.toggle('on'); toast('تعذر التحديث'); }
-        }
-      } }) },
+      { icon: 'sparkle', label: 'الوضع الداكن', right: makeToggle(true, async () => toast('قريبًا')) },
+      { icon: 'video', label: 'تشغيل تلقائي للفيديو', right: makeToggle(true, async () => {}) },
+      { icon: 'eye', label: 'حفظ بيانات الإنترنت', right: makeToggle(false, async () => {}) },
     ]);
+
+    // ── Location ──
+    section('الموقع الجغرافي', [
+      { icon: 'map', label: 'خريطة الأصدقاء', onclick: () => go('/map') },
+      { icon: 'map', label: 'مشاركة موقعي مع', right: el('span', { class: 'muted' }, 'الأصدقاء') },
+      { icon: 'map', label: 'تفعيل مشاركة الموقع', right: makeToggle(false, async (on) => {
+        if (!window.API) return;
+        await window.API.setLocationVisibility(on ? 'friends' : 'none');
+        toast(on ? 'تمت مشاركة موقعك' : 'تم إيقاف المشاركة');
+      }) },
+    ]);
+
+    // ── Support & Legal ──
     section('الدعم والقانوني', [
       { icon: 'flag', label: 'الإبلاغ عن مشكلة' },
-      { icon: 'mail', label: 'تواصل معنا' },
-      { icon: 'globe', label: 'الشروط وسياسة الخصوصية' },
+      { icon: 'mail', label: 'تواصل معنا', onclick: () => window.location.href = 'mailto:support@tenthtone.app' },
+      { icon: 'globe', label: 'الشروط وسياسة الخصوصية', onclick: () => window.open('https://github.com/meeranpmo-svg/Tiktok/blob/main/PRIVACY.md', '_blank') },
+      { icon: 'sparkle', label: 'حول التطبيق', right: el('span', { class: 'muted' }, 'الإصدار 1.0.0') },
+    ]);
+
+    // ── Danger ──
+    section('منطقة الخطر', [
+      { icon: 'x', label: 'حذف الحساب نهائيًا', onclick: async () => {
+        if (!confirm('هل أنت متأكد من حذف حسابك؟ لا يمكن التراجع عن هذا الإجراء.')) return;
+        toast('قريبًا — حذف الحساب يحتاج Edge Function');
+      } },
     ]);
 
     // Admin section — only renders if the signed-in user has is_admin = true

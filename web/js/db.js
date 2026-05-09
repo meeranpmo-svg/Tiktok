@@ -454,6 +454,91 @@
   };
 
   // ============================================================
+  // ===================== LOCATION PERMITS =======================
+  // A → asks B for location → B approves/denies → A can track until revoked
+  // ============================================================
+  API.requestLocationPermit = async (targetUserId) => {
+    const c = await client(); const me = await uid(); if (!me) throw new Error('not signed in');
+    const { data, error } = await c.from('location_permits')
+      .upsert({ requester_id: me, target_id: targetUserId, status: 'pending' }, { onConflict: 'requester_id,target_id' })
+      .select().single();
+    if (error) throw error;
+    return data;
+  };
+
+  API.respondToLocationPermit = async (permitId, decision /* 'approved' | 'denied' */) => {
+    const c = await client();
+    const { error } = await c.from('location_permits')
+      .update({ status: decision, responded_at: new Date().toISOString() })
+      .eq('id', permitId);
+    if (error) throw error;
+  };
+
+  API.revokeLocationPermit = async (targetUserId) => {
+    const c = await client(); const me = await uid();
+    const { error } = await c.from('location_permits')
+      .update({ status: 'revoked', responded_at: new Date().toISOString() })
+      .or(`and(requester_id.eq.${me},target_id.eq.${targetUserId}),and(requester_id.eq.${targetUserId},target_id.eq.${me})`);
+    if (error) throw error;
+  };
+
+  API.fetchPermitStatus = async (targetUserId) => {
+    const c = await client(); const me = await uid(); if (!me) return null;
+    const { data } = await c.from('location_permits')
+      .select('id,status')
+      .eq('requester_id', me).eq('target_id', targetUserId)
+      .maybeSingle();
+    return data;
+  };
+
+  API.fetchIncomingPermits = async () => {
+    const c = await client(); const me = await uid(); if (!me) return [];
+    const { data, error } = await c.from('location_permits')
+      .select('id, status, created_at, requester:profiles!location_permits_requester_id_fkey(id,name,handle,avatar_url)')
+      .eq('target_id', me)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  };
+
+  API.fetchTrackedLocations = async () => {
+    const c = await client(); const me = await uid(); if (!me) return [];
+    // Get permits I own that are approved
+    const { data: permits } = await c.from('location_permits')
+      .select('target_id')
+      .eq('requester_id', me)
+      .eq('status', 'approved');
+    const ids = (permits || []).map(p => p.target_id);
+    if (!ids.length) return [];
+    const { data, error } = await c.from('user_locations')
+      .select('user_id, lat, lng, updated_at, profiles:profiles!user_locations_user_id_fkey(id,name,handle,avatar_url)')
+      .in('user_id', ids);
+    if (error) throw error;
+    return data || [];
+  };
+
+  // ============================================================
+  // ============================ BLOCKS ==========================
+  // ============================================================
+  API.blockUser = async (userId) => {
+    const c = await client(); const me = await uid(); if (!me) throw new Error('not signed in');
+    const { error } = await c.from('blocks').insert({ blocker_id: me, blocked_id: userId });
+    if (error && error.code !== '23505') throw error;
+  };
+  API.unblockUser = async (userId) => {
+    const c = await client(); const me = await uid();
+    const { error } = await c.from('blocks').delete().eq('blocker_id', me).eq('blocked_id', userId);
+    if (error) throw error;
+  };
+  API.fetchBlocked = async () => {
+    const c = await client(); const me = await uid(); if (!me) return [];
+    const { data, error } = await c.from('blocks').select('blocked_id, profiles:profiles!blocks_blocked_id_fkey(id,name,handle,avatar_url)').eq('blocker_id', me);
+    if (error) throw error;
+    return (data || []).map(r => r.profiles).filter(Boolean);
+  };
+
+  // ============================================================
   // ============== ADMIN ENDPOINTS (require is_admin) ============
   // ============================================================
   API.adminCheckIsAdmin = async () => {

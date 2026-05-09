@@ -1,5 +1,5 @@
 /* === Tenth Tone Service Worker === */
-const VERSION = 'tt-v1';
+const VERSION = 'tt-v2-camera-realtime';
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 

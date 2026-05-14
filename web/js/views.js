@@ -1883,7 +1883,7 @@
     return root;
   };
 
-  // ===== Map (with live location) =====
+  // ===== Map (Snap-Map-style live location) =====
   V.map = (params) => {
     hideNav();
     const focusUserId = (params && params.q && params.q.user) || null; // /#/map?user=<id>
@@ -1892,22 +1892,60 @@
     const mapEl = el('div', { id: 'leaflet-map', style: { position: 'absolute', inset: 0, zIndex: 0 } });
     root.appendChild(mapEl);
 
-    // Top controls overlay
+    // Ghost-mode state (Snap-style: hide my pin from everyone)
+    let ghostMode = false;
+
+    // Top controls overlay — back, ghost toggle, settings
+    const ghostBtn = el('button', { class: 'icon-btn', style: { background: '#fff' }, title: 'الوضع الخفي' }, '👻');
+    ghostBtn.onclick = async () => {
+      ghostMode = !ghostMode;
+      ghostBtn.style.background = ghostMode ? '#1f2937' : '#fff';
+      ghostBtn.style.color = ghostMode ? '#fff' : '';
+      toast(ghostMode ? 'الوضع الخفي مُفعَّل — موقعك مخفي' : 'الوضع الخفي مُعطَّل');
+      try {
+        if (window.API && lastFix) {
+          await window.API.upsertLocation({ lat: lastFix.lat, lng: lastFix.lng, accuracy: lastFix.accuracy, sharing_enabled: !ghostMode });
+        }
+      } catch (e) {}
+      // Show/hide my own pin locally too
+      if (myMarker) {
+        if (ghostMode) map.removeLayer(myMarker);
+        else if (lastFix) myMarker.addTo(map);
+      }
+    };
     root.appendChild(el('div', { class: 'map-controls', style: { zIndex: 1000 } }, [
       el('button', { class: 'icon-btn', style: { background: '#fff' }, html: icons.chevR, onclick: () => back() }),
+      ghostBtn,
       el('button', { class: 'icon-btn', style: { background: '#fff' }, html: icons.settings, onclick: () => go('/settings') }),
     ]));
-    // Bottom buttons
-    const showFriends = { val: true };
-    root.appendChild(el('div', { class: 'map-bottom', style: { zIndex: 1000 } }, [
-      el('button', { class: 'map-fab', onclick: () => { showFriends.val = true; refresh(); } }, [svg('user'), document.createTextNode(' الأصدقاء')]),
-      el('button', { class: 'map-fab', onclick: () => toast('قريبًا — الشائع حسب المنطقة') }, [svg('sparkle'), document.createTextNode(' الشائع')]),
-    ]));
+
+    // ── Snap-style bottom sheet listing all friends on the map ──
+    const sheetExpanded = { val: false };
+    const sheetHandle = el('div', { style: { width: '44px', height: '5px', borderRadius: '999px', background: '#d1d5db', margin: '8px auto 6px' } });
+    const sheetTitle = el('div', { style: { textAlign: 'center', fontSize: '14px', fontWeight: 700 } }, 'لا يوجد أصدقاء قريبين');
+    const sheetSub = el('div', { class: 'muted', style: { textAlign: 'center', fontSize: '11.5px', marginBottom: '8px' } }, 'اسحب للأعلى لعرض القائمة');
+    const sheetList = el('div', { style: { display: 'none', maxHeight: '40vh', overflowY: 'auto', paddingBottom: '12px' } });
+    const sheet = el('div', { style: {
+      position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 1000,
+      background: '#fff', borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
+      boxShadow: '0 -8px 24px rgba(0,0,0,0.15)', transition: 'transform 200ms ease',
+      transform: 'translateY(0)',
+    } }, [sheetHandle, sheetTitle, sheetSub, sheetList]);
+    function toggleSheet() {
+      sheetExpanded.val = !sheetExpanded.val;
+      sheetList.style.display = sheetExpanded.val ? 'block' : 'none';
+      sheetSub.style.display = sheetExpanded.val ? 'none' : 'block';
+    }
+    sheetHandle.style.cursor = sheetTitle.style.cursor = sheetSub.style.cursor = 'pointer';
+    [sheetHandle, sheetTitle, sheetSub].forEach(n => n.addEventListener('click', toggleSheet));
+    root.appendChild(sheet);
 
     // ── Real map using Leaflet (free OpenStreetMap tiles) ──
     let map = null;
     const markers = new Map(); // user_id → marker
     let myMarker = null;
+    let myProfile = null;
+    let lastFix = null;
 
     function ensureLeaflet() {
       if (typeof window.L === 'undefined') {
@@ -1918,16 +1956,18 @@
       return true;
     }
 
-    function makeAvatarIcon(profile, color = '#4ade80') {
+    function makeAvatarIcon(profile, color = '#4ade80', isMe = false) {
       const url = profile.avatar_url || profile.avatar || '';
+      const ring = isMe ? '#fff' : color;
+      const outerBorder = isMe ? `outline: 4px solid ${color};` : '';
       const html = `
-        <div style="width:50px;height:50px;position:relative;">
-          <div style="width:44px;height:44px;border-radius:50%;border:3px solid ${color};overflow:hidden;background:#ddd;box-shadow:0 4px 12px rgba(0,0,0,0.25);">
-            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover" />` : ''}
+        <div style="width:54px;height:60px;position:relative;">
+          <div style="width:48px;height:48px;border-radius:50%;border:3px solid ${ring};${outerBorder}overflow:hidden;background:#ddd;box-shadow:0 4px 14px rgba(0,0,0,0.3);">
+            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover" />` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:${color};font-size:18px">${(profile.name || '?').substring(0, 1)}</div>`}
           </div>
-          <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${color};margin-left:19px;margin-top:-1px;"></div>
+          <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${color};margin-${isMe ? 'left' : 'left'}:20px;margin-top:-2px;"></div>
         </div>`;
-      return window.L.divIcon({ html, iconSize: [50, 60], iconAnchor: [25, 60], className: 'leaflet-avatar-pin' });
+      return window.L.divIcon({ html, iconSize: [54, 60], iconAnchor: [27, 60], className: 'leaflet-avatar-pin' });
     }
 
     function ago(iso) {
@@ -1941,6 +1981,24 @@
       return 'منذ ' + Math.floor(h / 24) + ' يوم';
     }
 
+    // Rich Snap-style popup: big avatar, name, last seen, two action buttons
+    function popupHtml(profile, l) {
+      const url = profile.avatar_url || profile.avatar || '';
+      const initial = (profile.name || '?').substring(0, 1);
+      return `
+        <div style="min-width:200px;text-align:center;font-family:Cairo,sans-serif" dir="rtl">
+          <div style="width:64px;height:64px;border-radius:50%;overflow:hidden;margin:0 auto 8px;border:3px solid #6c2bd9">
+            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover" />` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#6c2bd9;color:#fff;font-weight:700;font-size:22px">${initial}</div>`}
+          </div>
+          <div style="font-weight:700;font-size:14px">${profile.name || ''}</div>
+          <div style="color:#888;font-size:11.5px;margin-bottom:8px">${ago(l.updated_at)}</div>
+          <div style="display:flex;gap:6px;justify-content:center">
+            <a href="#/chat-new/dm?to=${profile.id}" style="flex:1;background:#6c2bd9;color:#fff;padding:6px 8px;border-radius:6px;text-decoration:none;font-size:12px">💬 رسالة</a>
+            <a href="#/profile/${profile.id}" style="flex:1;background:#f3f4f6;color:#111;padding:6px 8px;border-radius:6px;text-decoration:none;font-size:12px">👤 البروفايل</a>
+          </div>
+        </div>`;
+    }
+
     async function initMap() {
       if (!ensureLeaflet()) { setTimeout(initMap, 200); return; }
       // Default center: Riyadh
@@ -1951,16 +2009,28 @@
       }).addTo(map);
       window.L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
+      // Load my real profile so my pin shows my real avatar (Snap-style "me" indicator)
+      try {
+        if (window.SB && window.API) {
+          const u = await window.SB.getUser();
+          if (u) myProfile = await window.API.fetchProfile(u.id);
+        }
+      } catch (e) {}
+
       // Get my real GPS location and center on it
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(async pos => {
-          map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+          lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+          map.setView([lastFix.lat, lastFix.lng], 14);
           if (myMarker) map.removeLayer(myMarker);
-          myMarker = window.L.marker([pos.coords.latitude, pos.coords.longitude], {
-            icon: makeAvatarIcon({ avatar_url: '' }, '#6c2bd9'),
-          }).addTo(map).bindPopup('أنت هنا');
+          myMarker = window.L.marker([lastFix.lat, lastFix.lng], {
+            icon: makeAvatarIcon(myProfile || { avatar_url: '', name: 'أنت' }, '#6c2bd9', true),
+            zIndexOffset: 1000,
+          });
+          if (!ghostMode) myMarker.addTo(map);
+          myMarker.bindPopup('<div style="text-align:center;font-family:Cairo,sans-serif" dir="rtl"><strong>أنت هنا</strong></div>');
           try {
-            if (window.API) await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true });
+            if (window.API) await window.API.upsertLocation({ lat: lastFix.lat, lng: lastFix.lng, accuracy: lastFix.accuracy, sharing_enabled: !ghostMode });
           } catch (e) {}
         }, () => {
           // Permission denied or error — keep Riyadh center
@@ -1968,12 +2038,55 @@
 
         // Watch position and push updates
         const watchId = navigator.geolocation.watchPosition(async pos => {
-          try { if (window.API) await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true }); } catch (e) {}
-          if (myMarker) myMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
+          lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
+          try { if (window.API) await window.API.upsertLocation({ lat: lastFix.lat, lng: lastFix.lng, accuracy: lastFix.accuracy, sharing_enabled: !ghostMode }); } catch (e) {}
+          if (myMarker) myMarker.setLatLng([lastFix.lat, lastFix.lng]);
         }, () => {}, { maximumAge: 30000 });
         window.addEventListener('hashchange', () => { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} }, { once: true });
       }
       await refresh();
+    }
+
+    function flyToUser(userId) {
+      const m = markers.get(userId);
+      if (!m) { toast('لم نعثر على هذا الصديق على الخريطة'); return; }
+      map.setView(m.getLatLng(), 16, { animate: true });
+      m.openPopup();
+    }
+
+    function renderSheet(items) {
+      // Update header
+      sheetTitle.textContent = items.length
+        ? `${items.length} ${items.length === 1 ? 'صديق' : items.length === 2 ? 'صديقان' : 'أصدقاء'} على الخريطة`
+        : 'لا يوجد أصدقاء قريبين';
+      // Update list
+      sheetList.innerHTML = '';
+      items.forEach(it => {
+        const url = (it.profile.avatar_url || it.profile.avatar || '');
+        const initial = (it.profile.name || '?').substring(0, 1);
+        const row = el('div', { style: {
+          display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
+          borderTop: '1px solid #f3f4f6', cursor: 'pointer',
+        } });
+        row.innerHTML = `
+          <div style="width:42px;height:42px;border-radius:50%;overflow:hidden;border:2px solid ${it.color};flex-shrink:0;background:#eee">
+            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover"/>` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:${it.color};color:#fff;font-weight:700">${initial}</div>`}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13.5px">${it.profile.name || ''}</div>
+            <div style="color:#888;font-size:11.5px">@${it.profile.handle || ''} · ${ago(it.l.updated_at)}</div>
+          </div>
+        `;
+        const chatBtn = el('button', { class: 'btn-sm', style: { background: '#6c2bd9', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '6px', fontSize: '12px' } }, '💬');
+        chatBtn.onclick = async (e) => {
+          e.stopPropagation();
+          try { const dmId = await window.API.openOrCreateDm(it.profile.id); go('/chat/' + dmId); }
+          catch (err) { toast('تعذر فتح المحادثة'); }
+        };
+        row.appendChild(chatBtn);
+        row.onclick = () => flyToUser(it.profile.id);
+        sheetList.appendChild(row);
+      });
     }
 
     async function refresh() {
@@ -1985,14 +2098,13 @@
         ]);
         const trackedIds = new Set(tracked.map(t => t.user_id));
         const seen = new Set();
+        const sheetItems = []; // for the bottom sheet
 
-        function popupHtml(profile, l) {
-          return `<strong>${profile.name || ''}</strong><br><span style="color:#888;font-size:12px">${ago(l.updated_at)}</span><br><a href="#/profile/${profile.id}">عرض البروفايل</a>`;
-        }
         function placePin(l, color) {
           if (l.lat == null || l.lng == null) return;
           const profile = l.profiles || { id: l.user_id };
           seen.add(l.user_id);
+          sheetItems.push({ profile, l, color });
           if (markers.has(l.user_id)) {
             const existing = markers.get(l.user_id);
             existing.setLatLng([l.lat, l.lng]);
@@ -2014,11 +2126,13 @@
           if (!seen.has(uid)) { map.removeLayer(marker); markers.delete(uid); }
         }
 
+        // Sort by most recent activity, then render the bottom-sheet list
+        sheetItems.sort((a, b) => new Date(b.l.updated_at) - new Date(a.l.updated_at));
+        renderSheet(sheetItems);
+
         // If we were asked to focus on a specific user, zoom in on them
         if (focusUserId && markers.has(focusUserId)) {
-          const target = markers.get(focusUserId);
-          map.setView(target.getLatLng(), 16, { animate: true });
-          target.openPopup();
+          flyToUser(focusUserId);
         }
       } catch (e) { console.warn('map refresh:', e); }
     }
@@ -2029,6 +2143,10 @@
       await initMap();
       if (window.API) unsub = window.API.subscribeToFriendLocations(() => refresh());
     })();
+
+    // Re-render the sheet every 30s so timestamps ("now", "منذ N د") stay fresh
+    const tickerId = setInterval(() => { if (map) refresh(); }, 30000);
+    window.addEventListener('hashchange', () => { clearInterval(tickerId); }, { once: true });
 
     window.addEventListener('hashchange', () => {
       if (map) try { map.remove(); } catch (e) {}

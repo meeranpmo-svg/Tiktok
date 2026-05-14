@@ -31,7 +31,7 @@
     { p: /^\/live\/start$/, v: () => Views.liveStart() },
     { p: /^\/live\/host-list$/, v: () => Views.liveHostList() },
     { p: /^\/live\/(.+)$/, v: (q, m) => Views.live({ id: m[1] }) },
-    { p: /^\/map$/, v: () => Views.map() },
+    { p: /^\/map$/, v: q => Views.map({ q }) },
     { p: /^\/wallet$/, v: () => Views.wallet() },
     { p: /^\/settings$/, v: () => Views.settings() },
   ];

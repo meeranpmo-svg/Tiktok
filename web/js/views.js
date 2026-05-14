@@ -1151,6 +1151,7 @@
         const actionsRow = fresh.querySelector('.profile-actions');
         if (actionsRow && p.id) {
           const trackBtn = el('button', { class: 'btn btn-secondary', style: { marginTop: '8px', width: '100%' } });
+          const showOnMapBtn = el('button', { class: 'btn', style: { marginTop: '6px', width: '100%', display: 'none' }, onclick: () => go('/map?user=' + p.id) }, '🗺️ تتبع على الخريطة الآن');
           let permitStatus = await window.API.fetchPermitStatus(p.id);
           function setLabel() {
             if (!permitStatus) trackBtn.textContent = '📍 طلب تتبع الموقع';
@@ -1158,6 +1159,8 @@
             else if (permitStatus.status === 'approved') trackBtn.textContent = '✅ يتم التتبع — اضغط للإلغاء';
             else if (permitStatus.status === 'denied') trackBtn.textContent = '❌ تم الرفض — أعد الطلب';
             else trackBtn.textContent = '📍 طلب تتبع الموقع';
+            // Show map shortcut only when tracking is approved
+            showOnMapBtn.style.display = (permitStatus && permitStatus.status === 'approved') ? 'block' : 'none';
           }
           setLabel();
           trackBtn.onclick = async () => {
@@ -1173,11 +1176,12 @@
               setLabel();
             } catch (e) { toast(e.message || 'خطأ'); }
           };
-          // wrap actionsRow + button in a flex column
+          // wrap actionsRow + buttons in a flex column
           const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxWidth: '320px', width: '100%', alignItems: 'center' } });
           actionsRow.parentNode.insertBefore(wrap, actionsRow);
           wrap.appendChild(actionsRow);
           wrap.appendChild(trackBtn);
+          wrap.appendChild(showOnMapBtn);
         }
         const grid = fresh.querySelector('.video-grid');
         if (videos.length && grid) {
@@ -1880,8 +1884,9 @@
   };
 
   // ===== Map (with live location) =====
-  V.map = () => {
+  V.map = (params) => {
     hideNav();
+    const focusUserId = (params && params.q && params.q.user) || null; // /#/map?user=<id>
     const root = el('section', { class: 'map-screen', style: { position: 'relative', height: '100%' } });
     // Real Leaflet map container
     const mapEl = el('div', { id: 'leaflet-map', style: { position: 'absolute', inset: 0, zIndex: 0 } });
@@ -1923,6 +1928,17 @@
           <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${color};margin-left:19px;margin-top:-1px;"></div>
         </div>`;
       return window.L.divIcon({ html, iconSize: [50, 60], iconAnchor: [25, 60], className: 'leaflet-avatar-pin' });
+    }
+
+    function ago(iso) {
+      if (!iso) return '';
+      const t = Date.now() - new Date(iso).getTime();
+      const m = Math.floor(t / 60000);
+      if (m < 1) return 'الآن';
+      if (m < 60) return 'منذ ' + m + ' د';
+      const h = Math.floor(m / 60);
+      if (h < 24) return 'منذ ' + h + ' س';
+      return 'منذ ' + Math.floor(h / 24) + ' يوم';
     }
 
     async function initMap() {
@@ -1970,16 +1986,21 @@
         const trackedIds = new Set(tracked.map(t => t.user_id));
         const seen = new Set();
 
+        function popupHtml(profile, l) {
+          return `<strong>${profile.name || ''}</strong><br><span style="color:#888;font-size:12px">${ago(l.updated_at)}</span><br><a href="#/profile/${profile.id}">عرض البروفايل</a>`;
+        }
         function placePin(l, color) {
           if (l.lat == null || l.lng == null) return;
           const profile = l.profiles || { id: l.user_id };
           seen.add(l.user_id);
           if (markers.has(l.user_id)) {
-            markers.get(l.user_id).setLatLng([l.lat, l.lng]);
+            const existing = markers.get(l.user_id);
+            existing.setLatLng([l.lat, l.lng]);
+            existing.setPopupContent(popupHtml(profile, l));
           } else {
             const m = window.L.marker([l.lat, l.lng], { icon: makeAvatarIcon(profile, color) })
               .addTo(map)
-              .bindPopup(`<strong>${profile.name || ''}</strong><br><a href="#/profile/${profile.id}">عرض البروفايل</a>`);
+              .bindPopup(popupHtml(profile, l));
             markers.set(l.user_id, m);
           }
         }
@@ -1991,6 +2012,13 @@
         // Remove pins for users not in the latest data
         for (const [uid, marker] of markers) {
           if (!seen.has(uid)) { map.removeLayer(marker); markers.delete(uid); }
+        }
+
+        // If we were asked to focus on a specific user, zoom in on them
+        if (focusUserId && markers.has(focusUserId)) {
+          const target = markers.get(focusUserId);
+          map.setView(target.getLatLng(), 16, { animate: true });
+          target.openPopup();
         }
       } catch (e) { console.warn('map refresh:', e); }
     }

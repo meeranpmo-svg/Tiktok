@@ -287,8 +287,14 @@
     const tab = (params && params.q && params.q.tab) || 'foryou';
     const root = el('section', { class: 'feed' });
 
-    // Top: search + tabs
+    // Top: search + map shortcut + tabs
     root.appendChild(el('button', { class: 'icon-btn feed-search-btn', html: icons.search, onclick: () => go('/discover') }));
+    root.appendChild(el('button', {
+      class: 'icon-btn', title: 'خريطة الأصدقاء',
+      html: icons.map,
+      style: { position: 'absolute', top: 'calc(12px + var(--safe-top))', insetInlineStart: '52px', zIndex: 6, color: '#fff' },
+      onclick: () => go('/map'),
+    }));
     const tabs = el('div', { class: 'feed-tabs' }, [
       el('button', { class: 'feed-tab' + (tab === 'following' ? ' active' : ''), onclick: () => go('/home?tab=following') }, 'متابعون'),
       el('button', { class: 'feed-tab' + (tab === 'foryou' ? ' active' : ''), onclick: () => go('/home?tab=foryou') }, 'لك'),
@@ -1876,91 +1882,129 @@
   // ===== Map (with live location) =====
   V.map = () => {
     hideNav();
-    const root = el('section', { class: 'map-screen' });
-    root.appendChild(el('div', { class: 'map-bg' }));
-    root.appendChild(el('div', { class: 'map-overlay-bg' }));
-    root.appendChild(el('div', { class: 'map-controls' }, [
+    const root = el('section', { class: 'map-screen', style: { position: 'relative', height: '100%' } });
+    // Real Leaflet map container
+    const mapEl = el('div', { id: 'leaflet-map', style: { position: 'absolute', inset: 0, zIndex: 0 } });
+    root.appendChild(mapEl);
+
+    // Top controls overlay
+    root.appendChild(el('div', { class: 'map-controls', style: { zIndex: 1000 } }, [
       el('button', { class: 'icon-btn', style: { background: '#fff' }, html: icons.chevR, onclick: () => back() }),
       el('button', { class: 'icon-btn', style: { background: '#fff' }, html: icons.settings, onclick: () => go('/settings') }),
     ]));
-
-    // Bounding box for projecting lat/lng to screen 0-100% (Saudi-Arabia centered fallback)
-    const view = { minLat: 22, maxLat: 28, minLng: 42, maxLng: 50 };
-    function project(lat, lng) {
-      const x = Math.max(5, Math.min(95, ((lng - view.minLng) / (view.maxLng - view.minLng)) * 100));
-      const y = Math.max(8, Math.min(92, 100 - ((lat - view.minLat) / (view.maxLat - view.minLat)) * 100));
-      return { x, y };
-    }
-
-    function pinEl(profile, lat, lng) {
-      const { x, y } = project(lat, lng);
-      return el('div', { class: 'map-pin', style: { left: x + '%', top: y + '%' }, onclick: () => go('/profile/' + profile.id) }, [
-        el('div', { class: 'avatar' }, [Object.assign(document.createElement('img'), { src: profile.avatar_url || profile.avatar || '' })]),
-        el('div', { class: 'arrow' }),
-      ]);
-    }
-
-    // Default mock pins (no real GPS yet)
-    DB.users.slice(0, 6).forEach((u, i) => {
-      root.appendChild(el('div', { class: 'map-pin', style: { left: (15 + (i * 13) % 70) + '%', top: (25 + (i * 17) % 55) + '%' }, onclick: () => go('/profile/' + u.id) }, [
-        el('div', { class: 'avatar' }, [Object.assign(document.createElement('img'), { src: u.avatar })]),
-        el('div', { class: 'arrow' }),
-      ]));
-    });
-
-    root.appendChild(el('div', { class: 'map-bottom' }, [
-      el('button', { class: 'map-fab' }, [svg('user'), document.createTextNode(' الأصدقاء')]),
-      el('button', { class: 'map-fab' }, [svg('sparkle'), document.createTextNode(' الشائع')]),
+    // Bottom buttons
+    const showFriends = { val: true };
+    root.appendChild(el('div', { class: 'map-bottom', style: { zIndex: 1000 } }, [
+      el('button', { class: 'map-fab', onclick: () => { showFriends.val = true; refresh(); } }, [svg('user'), document.createTextNode(' الأصدقاء')]),
+      el('button', { class: 'map-fab', onclick: () => toast('قريبًا — الشائع حسب المنطقة') }, [svg('sparkle'), document.createTextNode(' الشائع')]),
     ]));
 
-    // Real geolocation: ask permission, push every 30s, fetch friends
-    let watchId = null;
+    // ── Real map using Leaflet (free OpenStreetMap tiles) ──
+    let map = null;
+    const markers = new Map(); // user_id → marker
+    let myMarker = null;
+
+    function ensureLeaflet() {
+      if (typeof window.L === 'undefined') {
+        // Fallback display while leaflet loads
+        mapEl.innerHTML = '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#888">جاري تحميل الخريطة...</div>';
+        return false;
+      }
+      return true;
+    }
+
+    function makeAvatarIcon(profile, color = '#4ade80') {
+      const url = profile.avatar_url || profile.avatar || '';
+      const html = `
+        <div style="width:50px;height:50px;position:relative;">
+          <div style="width:44px;height:44px;border-radius:50%;border:3px solid ${color};overflow:hidden;background:#ddd;box-shadow:0 4px 12px rgba(0,0,0,0.25);">
+            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover" />` : ''}
+          </div>
+          <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid ${color};margin-left:19px;margin-top:-1px;"></div>
+        </div>`;
+      return window.L.divIcon({ html, iconSize: [50, 60], iconAnchor: [25, 60], className: 'leaflet-avatar-pin' });
+    }
+
+    async function initMap() {
+      if (!ensureLeaflet()) { setTimeout(initMap, 200); return; }
+      // Default center: Riyadh
+      map = window.L.map(mapEl, { zoomControl: false, attributionControl: true }).setView([24.7136, 46.6753], 11);
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap',
+      }).addTo(map);
+      window.L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+      // Get my real GPS location and center on it
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(async pos => {
+          map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+          if (myMarker) map.removeLayer(myMarker);
+          myMarker = window.L.marker([pos.coords.latitude, pos.coords.longitude], {
+            icon: makeAvatarIcon({ avatar_url: '' }, '#6c2bd9'),
+          }).addTo(map).bindPopup('أنت هنا');
+          try {
+            if (window.API) await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true });
+          } catch (e) {}
+        }, () => {
+          // Permission denied or error — keep Riyadh center
+        }, { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 });
+
+        // Watch position and push updates
+        const watchId = navigator.geolocation.watchPosition(async pos => {
+          try { if (window.API) await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true }); } catch (e) {}
+          if (myMarker) myMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]);
+        }, () => {}, { maximumAge: 30000 });
+        window.addEventListener('hashchange', () => { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} }, { once: true });
+      }
+      await refresh();
+    }
+
+    async function refresh() {
+      if (!map || !window.API) return;
+      try {
+        const [friends, tracked] = await Promise.all([
+          window.API.fetchFriendLocations().catch(() => []),
+          window.API.fetchTrackedLocations().catch(() => []),
+        ]);
+        const trackedIds = new Set(tracked.map(t => t.user_id));
+        const seen = new Set();
+
+        function placePin(l, color) {
+          if (l.lat == null || l.lng == null) return;
+          const profile = l.profiles || { id: l.user_id };
+          seen.add(l.user_id);
+          if (markers.has(l.user_id)) {
+            markers.get(l.user_id).setLatLng([l.lat, l.lng]);
+          } else {
+            const m = window.L.marker([l.lat, l.lng], { icon: makeAvatarIcon(profile, color) })
+              .addTo(map)
+              .bindPopup(`<strong>${profile.name || ''}</strong><br><a href="#/profile/${profile.id}">عرض البروفايل</a>`);
+            markers.set(l.user_id, m);
+          }
+        }
+
+        // Tracked-via-permit get purple border, friends get green
+        tracked.forEach(l => placePin(l, '#6c2bd9'));
+        friends.forEach(l => { if (!trackedIds.has(l.user_id)) placePin(l, '#4ade80'); });
+
+        // Remove pins for users not in the latest data
+        for (const [uid, marker] of markers) {
+          if (!seen.has(uid)) { map.removeLayer(marker); markers.delete(uid); }
+        }
+      } catch (e) { console.warn('map refresh:', e); }
+    }
+
+    // Subscribe to realtime location changes
     let unsub = null;
     (async () => {
-      if (!navigator.geolocation || !window.API) return;
-      try {
-        // Push my location
-        navigator.geolocation.getCurrentPosition(async pos => {
-          try { await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true }); } catch (e) {}
-        }, () => {}, { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 });
-        watchId = navigator.geolocation.watchPosition(async pos => {
-          try { await window.API.upsertLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, sharing_enabled: true }); } catch (e) {}
-        }, () => {}, { maximumAge: 30000 });
-
-        // Render friends + approved-tracked users
-        async function refresh() {
-          try {
-            const [friends, tracked] = await Promise.all([
-              window.API.fetchFriendLocations(),
-              window.API.fetchTrackedLocations(),
-            ]);
-            // remove existing pins (except controls)
-            root.querySelectorAll('.map-pin').forEach(n => n.remove());
-            const trackedIds = new Set(tracked.map(t => t.user_id));
-            // Friends (green)
-            friends.forEach(l => {
-              if (l.lat == null || l.lng == null || trackedIds.has(l.user_id)) return;
-              const pin = pinEl(l.profiles || { id: l.user_id }, l.lat, l.lng);
-              root.appendChild(pin);
-            });
-            // Tracked-via-permit (purple border to distinguish)
-            tracked.forEach(l => {
-              if (l.lat == null || l.lng == null) return;
-              const pin = pinEl(l.profiles || { id: l.user_id }, l.lat, l.lng);
-              const av = pin.querySelector('.avatar');
-              if (av) av.style.borderColor = 'var(--primary)';
-              root.appendChild(pin);
-            });
-          } catch (e) {}
-        }
-        await refresh();
-        unsub = window.API.subscribeToFriendLocations(() => refresh());
-      } catch (e) { console.warn('location:', e); }
+      await initMap();
+      if (window.API) unsub = window.API.subscribeToFriendLocations(() => refresh());
     })();
 
     window.addEventListener('hashchange', () => {
-      try { if (watchId) navigator.geolocation.clearWatch(watchId); } catch (e) {}
-      try { if (unsub) unsub(); } catch (e) {}
+      if (map) try { map.remove(); } catch (e) {}
+      if (unsub) try { unsub(); } catch (e) {}
     }, { once: true });
 
     return root;

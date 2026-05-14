@@ -294,7 +294,7 @@
   // ===== Users =====
   function viewUsers() {
     const page = el('div', { class: 'adm-page' });
-    page.appendChild(pageHeader('إدارة الحسابات', 'عرض المستخدمين، البحث، الحظر، تعيين المشرفين'));
+    page.appendChild(pageHeader('إدارة الحسابات', 'بحث، تعديل البروفايل، المحفظة، التحقق، الحظر، الحذف'));
     const tableWrap = el('div', { class: 'table-wrap' });
     const searchIn = el('input', { placeholder: 'بحث بالاسم أو اسم المستخدم' });
     const statusSel = el('select', {}, [el('option', { value: '' }, 'كل الحالات'), el('option', { value: 'active' }, 'نشط'), el('option', { value: 'banned' }, 'محظور'), el('option', { value: 'admin' }, 'مشرف')]);
@@ -324,26 +324,26 @@
         users.forEach(u => {
           const isBanned = u.banned_until && new Date(u.banned_until) > new Date();
           const status = isBanned ? { l: 'محظور', c: 'danger' } : u.is_admin ? { l: 'مشرف', c: 'primary' } : { l: 'نشط', c: 'success' };
-          const tr = el('tr');
+          const tr = el('tr', { style: { cursor: 'pointer' } });
           tr.innerHTML = `
             <td><div class="user-cell"><div class="av"><img src="${u.avatar_url || ''}" onerror="this.style.background='#ddd'"></div><div><div class="nm">${u.name || ''}${u.verified ? ' ✓' : ''}</div><div class="em">@${u.handle || ''}</div></div></div></td>
             <td>${fmt(u.followers_count || 0)}</td>
             <td><span class="badge ${status.c}">${status.l}</span></td>
             <td>${new Date(u.created_at).toLocaleDateString('ar-SA')}</td>
             <td><div class="row-actions">
-              <button class="btn-sm btn-secondary" data-act="admin">${u.is_admin ? 'إزالة الإشراف' : 'تعيين مشرف'}</button>
+              <button class="btn-sm" data-act="open">إدارة</button>
               <button class="btn-sm btn-${isBanned ? 'secondary' : 'danger'}" data-act="ban">${isBanned ? 'إلغاء الحظر' : 'حظر'}</button>
             </div></td>`;
-          tr.querySelector('[data-act="admin"]').onclick = async () => {
-            if (!confirm((u.is_admin ? 'إزالة' : 'تعيين') + ' دور المشرف لـ ' + u.name + '?')) return;
-            try { await window.API.adminToggleAdmin(u.id, !u.is_admin); toast('تم'); load(); }
-            catch (e) { toast(e.message); }
-          };
-          tr.querySelector('[data-act="ban"]').onclick = async () => {
+          // Whole row + "إدارة" button → open detail modal
+          const openModal = (e) => { e && e.stopPropagation(); openUserModal(u); };
+          tr.addEventListener('click', openModal);
+          tr.querySelector('[data-act="open"]').onclick = openModal;
+          tr.querySelector('[data-act="ban"]').onclick = async (e) => {
+            e.stopPropagation();
             const days = isBanned ? null : prompt('عدد أيام الحظر (فارغ = دائم):', '7');
             if (days === null && !isBanned) return;
             try { await window.API.adminBanUser(u.id, days === null ? null : (days === '' ? 36500 : parseInt(days))); toast('تم'); load(); }
-            catch (e) { toast(e.message); }
+            catch (err) { toast(err.message); }
           };
           tb.appendChild(tr);
         });
@@ -354,21 +354,142 @@
     load();
     return page;
 
-    function openUserModal(u) {
-      const fields = el('div', {});
-      fields.innerHTML = `
-        <div class="field"><label>الاسم</label><input value="${u ? u.name : ''}"/></div>
-        <div class="field"><label>اسم المستخدم</label><input value="${u ? u.handle.replace('@','') : ''}"/></div>
-        <div class="field-row">
-          <div class="field"><label>البريد الإلكتروني</label><input type="email" value="${u ? u.handle.replace('@','') + '@example.com' : ''}"/></div>
-          <div class="field"><label>رقم الهاتف</label><input value="+9665${(Math.random()*1e8|0).toString().padStart(8,'0')}"/></div>
-        </div>
-        <div class="field"><label>الحالة</label><select><option>نشط</option><option>محظور</option><option>موقوف</option></select></div>
-      `;
-      const close = modalAdm(u ? 'تعديل المستخدم' : 'إضافة مستخدم', fields, [
-        el('button', { class: 'btn btn-secondary', onclick: () => close() }, 'إلغاء'),
-        el('button', { class: 'btn', onclick: () => { close(); toast('تم الحفظ'); } }, 'حفظ'),
+    // ── Full user-management modal: profile editor + wallet + roles + delete ──
+    async function openUserModal(u) {
+      const body = el('div', {}, [el('div', { class: 'muted', style: { padding: '20px', textAlign: 'center' } }, 'جاري التحميل...')]);
+      const close = modalAdm('إدارة المستخدم', body, []);
+      let detail;
+      try { detail = await window.API.adminFetchUserDetail(u.id); }
+      catch (e) { body.innerHTML = ''; body.appendChild(el('div', { class: 'muted', style: { padding: '20px', color: 'var(--danger)' } }, 'تعذر التحميل: ' + (e.message || e))); return; }
+      const p = (detail && detail.profile) || u;
+      const w = (detail && detail.wallet) || { balance: 0 };
+      const isBanned = p.banned_until && new Date(p.banned_until) > new Date();
+
+      body.innerHTML = '';
+
+      // Header (avatar + handle + quick badges)
+      body.appendChild(el('div', { style: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '16px' } }, [
+        el('div', { class: 'av', style: { width: '64px', height: '64px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: '#eee' } },
+           [Object.assign(document.createElement('img'), { src: p.avatar_url || '', style: 'width:100%;height:100%;object-fit:cover' })]),
+        el('div', { style: { flex: 1, minWidth: 0 } }, [
+          el('div', { style: { fontWeight: 700, fontSize: '16px' } }, (p.name || '') + (p.verified ? ' ✓' : '')),
+          el('div', { class: 'muted', style: { fontSize: '13px' } }, '@' + (p.handle || '')),
+          el('div', { class: 'muted', style: { fontSize: '11.5px', marginTop: '2px' } }, 'انضم: ' + new Date(p.created_at).toLocaleDateString('ar-SA')),
+        ]),
+        el('div', {}, [
+          el('span', { class: 'badge ' + (isBanned ? 'danger' : p.is_admin ? 'primary' : 'success') }, isBanned ? 'محظور' : p.is_admin ? 'مشرف' : 'نشط'),
+        ]),
+      ]));
+
+      // ── Stats strip
+      const stats = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '14px' } });
+      [['المتابعون', p.followers_count || 0], ['المتابَعون', p.following_count || 0], ['الإعجابات', p.likes_count || 0], ['الفيديوهات', detail.video_count || 0]]
+        .forEach(([l, v]) => stats.appendChild(el('div', { style: { background: '#f6f6fa', borderRadius: '8px', padding: '10px', textAlign: 'center' } }, [
+          el('div', { style: { fontWeight: 700, fontSize: '15px' } }, fmt(v)),
+          el('div', { class: 'muted', style: { fontSize: '11px' } }, l),
+        ])));
+      body.appendChild(stats);
+
+      // ── Profile edit form
+      body.appendChild(el('h4', { style: { margin: '14px 0 6px', fontSize: '13px', color: 'var(--muted)' } }, 'البروفايل'));
+      const nameIn   = el('input', { class: 'input', value: p.name || '' });
+      const handleIn = el('input', { class: 'input', value: p.handle || '' });
+      const bioIn    = el('textarea', { class: 'input', rows: 3, style: { resize: 'none' }, value: p.bio || '' });
+      const verifiedIn = el('input', { type: 'checkbox' });
+      verifiedIn.checked = !!p.verified;
+      const form = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+        el('div', { class: 'field' }, [el('label', {}, 'الاسم'), nameIn]),
+        el('div', { class: 'field' }, [el('label', {}, 'اسم المستخدم'), handleIn]),
+        el('div', { class: 'field' }, [el('label', {}, 'النبذة'), bioIn]),
+        el('label', { style: { display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' } }, [verifiedIn, document.createTextNode(' علامة موثَّق ✓')]),
+        el('button', { class: 'btn', style: { alignSelf: 'flex-start', marginTop: '4px' }, onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true; const orig = btn.textContent; btn.textContent = 'جاري الحفظ...';
+          try {
+            await window.API.adminUpdateProfile(p.id, {
+              name: nameIn.value.trim(),
+              handle: handleIn.value.trim().replace(/^@/, ''),
+              bio: bioIn.value.trim(),
+              verified: verifiedIn.checked,
+            });
+            toast('تم حفظ البروفايل');
+            load();
+          } catch (err) { toast(err.message || 'فشل الحفظ'); }
+          finally { btn.disabled = false; btn.textContent = orig; }
+        } }, 'حفظ تعديلات البروفايل'),
       ]);
+      body.appendChild(form);
+
+      // ── Wallet panel
+      body.appendChild(el('h4', { style: { margin: '20px 0 6px', fontSize: '13px', color: 'var(--muted)' } }, 'المحفظة'));
+      const balanceEl = el('div', { style: { fontSize: '20px', fontWeight: 800 } }, '🪙 ' + fmt(w.balance || 0));
+      const deltaIn = el('input', { class: 'input', type: 'number', placeholder: 'العدد (سالب للخصم)', style: { width: '140px' } });
+      const reasonIn = el('input', { class: 'input', placeholder: 'السبب (اختياري)', style: { flex: 1 } });
+      const walletRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' } }, [
+        deltaIn, reasonIn,
+        el('button', { class: 'btn', onclick: async (e) => {
+          const delta = parseInt(deltaIn.value, 10);
+          if (!Number.isFinite(delta) || delta === 0) { toast('أدخل قيمة صحيحة ≠ 0'); return; }
+          const btn = e.currentTarget; btn.disabled = true; const orig = btn.textContent; btn.textContent = '...';
+          try {
+            const newBal = await window.API.adminAdjustWallet(p.id, delta, reasonIn.value || null);
+            balanceEl.textContent = '🪙 ' + fmt(newBal);
+            deltaIn.value = ''; reasonIn.value = '';
+            toast('تم تعديل الرصيد');
+          } catch (err) { toast(err.message || 'فشل'); }
+          finally { btn.disabled = false; btn.textContent = orig; }
+        } }, 'تطبيق'),
+      ]);
+      body.appendChild(el('div', { style: { background: '#f6f6fa', borderRadius: '8px', padding: '12px' } }, [
+        el('div', { class: 'muted', style: { fontSize: '11.5px', marginBottom: '4px' } }, 'الرصيد الحالي'),
+        balanceEl,
+        el('div', { class: 'muted', style: { fontSize: '11.5px', margin: '10px 0 4px' } }, 'تعديل الرصيد (+ إيداع / − خصم)'),
+        walletRow,
+      ]));
+
+      // ── Recent videos thumbnail strip
+      if (Array.isArray(detail.recent_videos) && detail.recent_videos.length) {
+        body.appendChild(el('h4', { style: { margin: '20px 0 6px', fontSize: '13px', color: 'var(--muted)' } }, 'أحدث الفيديوهات'));
+        const strip = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' } });
+        detail.recent_videos.forEach(v => strip.appendChild(el('div', { style: { aspectRatio: '9/16', borderRadius: '6px', overflow: 'hidden', background: '#000', position: 'relative' } }, [
+          Object.assign(document.createElement('img'), { src: v.thumbnail || v.video_url || '', style: 'width:100%;height:100%;object-fit:cover;opacity:0.85' }),
+          el('div', { style: { position: 'absolute', bottom: '4px', left: '4px', color: '#fff', fontSize: '10.5px', textShadow: '0 1px 2px rgba(0,0,0,0.6)' } }, '❤ ' + fmt(v.likes_count || 0)),
+        ])));
+        body.appendChild(strip);
+      }
+
+      // ── Recent admin actions on this user
+      if (Array.isArray(detail.recent_logs) && detail.recent_logs.length) {
+        body.appendChild(el('h4', { style: { margin: '20px 0 6px', fontSize: '13px', color: 'var(--muted)' } }, 'سجل الإجراءات الإدارية'));
+        const logs = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } });
+        detail.recent_logs.forEach(L => logs.appendChild(el('div', { style: { fontSize: '12px', display: 'flex', justifyContent: 'space-between', padding: '6px 8px', background: '#f6f6fa', borderRadius: '6px' } }, [
+          el('span', {}, (L.admin && L.admin.name || 'مشرف') + ' · ' + L.action.replace(/_/g, ' ')),
+          el('span', { class: 'muted', style: { fontSize: '11px' } }, new Date(L.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })),
+        ])));
+        body.appendChild(logs);
+      }
+
+      // ── Danger zone: roles + ban + delete
+      body.appendChild(el('h4', { style: { margin: '20px 0 6px', fontSize: '13px', color: 'var(--muted)' } }, 'إجراءات سريعة'));
+      const dangerRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+        el('button', { class: 'btn-sm btn-secondary', onclick: async () => {
+          if (!confirm((p.is_admin ? 'إزالة' : 'تعيين') + ' دور المشرف لـ ' + p.name + '?')) return;
+          try { await window.API.adminToggleAdmin(p.id, !p.is_admin); toast('تم'); close(); load(); }
+          catch (err) { toast(err.message); }
+        } }, p.is_admin ? 'إزالة الإشراف' : 'تعيين مشرف'),
+        el('button', { class: 'btn-sm btn-' + (isBanned ? 'secondary' : 'danger'), onclick: async () => {
+          const days = isBanned ? null : prompt('عدد أيام الحظر (فارغ = دائم):', '7');
+          if (days === null && !isBanned) return;
+          try { await window.API.adminBanUser(p.id, days === null ? null : (days === '' ? 36500 : parseInt(days))); toast('تم'); close(); load(); }
+          catch (err) { toast(err.message); }
+        } }, isBanned ? 'إلغاء الحظر' : 'حظر مؤقت'),
+        el('button', { class: 'btn-sm btn-danger', style: { marginInlineStart: 'auto' }, onclick: async () => {
+          if (!confirm('حذف حساب ' + p.name + ' نهائيًا؟ هذا الإجراء غير قابل للتراجع.\nسيتم حذف جميع الفيديوهات والمحفظة والتعليقات.')) return;
+          try { await window.API.adminDeleteUser(p.id); toast('تم حذف الحساب'); close(); load(); }
+          catch (err) { toast(err.message); }
+        } }, '🗑️ حذف الحساب نهائيًا'),
+      ]);
+      body.appendChild(dangerRow);
     }
   }
 

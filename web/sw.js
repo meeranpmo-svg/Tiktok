@@ -1,5 +1,5 @@
 /* === Tenth Tone Service Worker === */
-const VERSION = 'tt-v4-track-on-map';
+const VERSION = 'tt-v5-admin-users';
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 

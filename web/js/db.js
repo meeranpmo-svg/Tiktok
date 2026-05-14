@@ -627,6 +627,42 @@
     await c.from('admin_logs').insert({ admin_id: await uid(), action: makeAdmin ? 'grant_admin' : 'revoke_admin', target_type: 'user', target_id: userId });
   };
 
+  // Full detail blob for the admin edit-user modal (profile + wallet + recent videos/logs)
+  API.adminFetchUserDetail = async (userId) => {
+    const c = await client();
+    const { data, error } = await c.rpc('admin_user_detail', { p_user_id: userId });
+    if (error) throw error;
+    return data || {};
+  };
+
+  // Patch a user's profile (admin only). Accepts: { name, handle, bio, verified, avatar_url }
+  API.adminUpdateProfile = async (userId, patch) => {
+    const c = await client();
+    const allowed = ['name', 'handle', 'bio', 'verified', 'avatar_url'];
+    const clean = {};
+    for (const k of allowed) if (k in patch) clean[k] = patch[k];
+    if (!Object.keys(clean).length) return;
+    const { error } = await c.from('profiles').update(clean).eq('id', userId);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: 'update_profile', target_type: 'user', target_id: userId, payload: clean });
+  };
+
+  // Adjust wallet balance by `delta` (positive or negative). Goes through SECURITY DEFINER RPC.
+  API.adminAdjustWallet = async (userId, delta, reason) => {
+    const c = await client();
+    const { data, error } = await c.rpc('admin_adjust_wallet', { p_user_id: userId, p_delta: delta, p_reason: reason || null });
+    if (error) throw error;
+    return data; // new balance
+  };
+
+  // Hard-delete a user (cascades to videos, wallet, etc. via FK on delete cascade)
+  API.adminDeleteUser = async (userId) => {
+    const c = await client();
+    const { error } = await c.from('profiles').delete().eq('id', userId);
+    if (error) throw error;
+    await c.from('admin_logs').insert({ admin_id: await uid(), action: 'delete_user', target_type: 'user', target_id: userId });
+  };
+
   API.adminFetchVideos = async ({ status = 'all', search = '' } = {}) => {
     const c = await client();
     let q = c.from('videos').select(`

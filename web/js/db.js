@@ -581,6 +581,44 @@
   };
 
   // ============================================================
+  // ============== SELF-SERVICE (wallet, privacy, deletion) ======
+  // ============================================================
+  // Fetch full profile incl. is_private (so settings can show the toggle correctly)
+  API.fetchMySettings = async () => {
+    const c = await client(); const me = await uid(); if (!me) return {};
+    const { data, error } = await c.from('profiles').select('id, name, handle, is_private, verified').eq('id', me).maybeSingle();
+    if (error) throw error;
+    return data || {};
+  };
+
+  API.setPrivate = async (isPrivate) => {
+    const c = await client(); const me = await uid(); if (!me) throw new Error('not signed in');
+    const { error } = await c.from('profiles').update({ is_private: !!isPrivate }).eq('id', me);
+    if (error) throw error;
+  };
+
+  API.selfTopup = async (amount, pkg = null) => {
+    const c = await client();
+    const { data, error } = await c.rpc('self_topup', { p_amount: amount, p_package: pkg });
+    if (error) throw error;
+    return data; // new balance
+  };
+
+  API.selfWithdraw = async (amount, method = null) => {
+    const c = await client();
+    const { data, error } = await c.rpc('self_withdraw', { p_amount: amount, p_method: method });
+    if (error) throw error;
+    return data; // new balance
+  };
+
+  API.selfDeleteAccount = async () => {
+    const c = await client();
+    const { error } = await c.rpc('self_delete_account');
+    if (error) throw error;
+    try { await window.SB.signOut(); } catch (e) {}
+  };
+
+  // ============================================================
   // ============== ADMIN ENDPOINTS (require is_admin) ============
   // ============================================================
   API.adminCheckIsAdmin = async () => {

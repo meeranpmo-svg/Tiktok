@@ -34,7 +34,11 @@
     { p: /^\/map$/, v: q => Views.map({ q }) },
     { p: /^\/wallet$/, v: () => Views.wallet() },
     { p: /^\/settings$/, v: () => Views.settings() },
+    { p: /^\/blocked$/, v: () => Views.blockedUsers() },
   ];
+
+  // Restore the user's dark-mode preference from localStorage as early as possible
+  try { if (localStorage.getItem('tt-theme') === 'dark') document.body.classList.add('dark'); } catch (e) {}
 
   function parseHash() {
     const raw = (location.hash || '#/').slice(1) || '/';

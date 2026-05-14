@@ -1,5 +1,5 @@
 /* === Tenth Tone Service Worker === */
-const VERSION = 'tt-v6-snap-map';
+const VERSION = 'tt-v7-self-service';
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 

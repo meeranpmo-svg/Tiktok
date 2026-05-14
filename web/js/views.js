@@ -2166,10 +2166,92 @@
       el('div', { class: 'label' }, 'الرصيد المتاح'),
       balanceEl,
       el('div', { class: 'wallet-actions' }, [
-        el('button', { class: 'btn btn-pill', onclick: () => toast('فتح شاشة الشحن') }, 'شحن'),
-        el('button', { class: 'btn btn-pill', onclick: () => toast('فتح شاشة السحب') }, 'سحب'),
+        el('button', { class: 'btn btn-pill', onclick: () => openTopupSheet() }, 'شحن'),
+        el('button', { class: 'btn btn-pill', onclick: () => openWithdrawSheet() }, 'سحب'),
       ]),
     ]));
+
+    // ── Top-up sheet: pick a package or enter custom amount ──
+    function openTopupSheet() {
+      const sheet = el('div', { class: 'sheet', style: { padding: '20px', maxWidth: '420px', margin: '0 auto' } });
+      sheet.appendChild(el('h3', { style: { margin: '0 0 12px', textAlign: 'center' } }, 'شحن المحفظة'));
+      const packages = [
+        { coins: 100,  price: '4.99 ر.س' },
+        { coins: 500,  price: '19.99 ر.س' },
+        { coins: 1000, price: '39.99 ر.س', popular: true },
+        { coins: 5000, price: '149.99 ر.س' },
+      ];
+      const grid = el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '14px' } });
+      packages.forEach(p => {
+        const card = el('button', { class: 'btn btn-secondary', style: { padding: '14px', display: 'flex', flexDirection: 'column', gap: '4px', position: 'relative', border: p.popular ? '2px solid var(--primary)' : '' } }, [
+          p.popular ? el('div', { style: { position: 'absolute', top: '-8px', insetInlineEnd: '8px', background: 'var(--primary)', color: '#fff', fontSize: '10px', padding: '2px 8px', borderRadius: '999px' } }, 'الأكثر شعبية') : null,
+          el('div', { style: { fontSize: '18px', fontWeight: 800 } }, '🪙 ' + fmt(p.coins)),
+          el('div', { class: 'muted', style: { fontSize: '12px' } }, p.price),
+        ].filter(Boolean));
+        card.onclick = () => doTopup(p.coins, p.coins + ' عملة');
+        grid.appendChild(card);
+      });
+      sheet.appendChild(grid);
+      const customAmt = el('input', { class: 'input', type: 'number', placeholder: 'أو أدخل عددًا مخصصًا', min: 1, max: 100000 });
+      const customBtn = el('button', { class: 'btn btn-pill', style: { width: '100%' }, onclick: () => {
+        const n = parseInt(customAmt.value, 10);
+        if (!n || n <= 0) return toast('أدخل عددًا صحيحًا');
+        doTopup(n, 'مخصص');
+      } }, 'شحن مبلغ مخصص');
+      sheet.appendChild(el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [customAmt, customBtn]));
+      sheet.appendChild(el('div', { class: 'muted', style: { fontSize: '11.5px', marginTop: '12px', textAlign: 'center' } }, 'الدفع الفعلي عبر Stripe / Apple Pay سيتم تفعيله قبل الإطلاق الرسمي'));
+      const close = modal(sheet);
+      sheet.appendChild(el('button', { class: 'btn-ghost', style: { width: '100%', marginTop: '8px' }, onclick: close }, 'إلغاء'));
+
+      async function doTopup(coins, label) {
+        customBtn.disabled = true;
+        try {
+          const newBal = await window.API.selfTopup(coins, label);
+          balanceEl.textContent = '🪙 ' + (newBal || 0);
+          toast('تم شحن ' + coins + ' عملة');
+          close();
+          // Reload transactions
+          const tx = await window.API.fetchWalletTx('all');
+          DB.wallet.transactions = tx.map(t => ({ id: t.id, type: t.type, title: t.description || t.type, sub: '', amount: t.amount, time: new Date(t.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' }) }));
+          rebuild();
+        } catch (e) { toast(e.message || 'فشل الشحن'); customBtn.disabled = false; }
+      }
+    }
+
+    // ── Withdraw sheet: amount + method ──
+    function openWithdrawSheet() {
+      const sheet = el('div', { class: 'sheet', style: { padding: '20px', maxWidth: '420px', margin: '0 auto' } });
+      sheet.appendChild(el('h3', { style: { margin: '0 0 4px', textAlign: 'center' } }, 'سحب الأرباح'));
+      sheet.appendChild(el('div', { class: 'muted', style: { fontSize: '12px', textAlign: 'center', marginBottom: '14px' } }, 'الحد الأدنى: 100 عملة'));
+      const amt = el('input', { class: 'input', type: 'number', placeholder: 'العدد', min: 100, max: 100000 });
+      const methodSel = el('select', { class: 'input' }, [
+        el('option', { value: 'bank' }, 'تحويل بنكي'),
+        el('option', { value: 'paypal' }, 'PayPal'),
+        el('option', { value: 'stc_pay' }, 'STC Pay'),
+      ]);
+      const submit = el('button', { class: 'btn btn-pill', style: { width: '100%' } }, 'تأكيد السحب');
+      const close = modal(sheet);
+      sheet.appendChild(el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+        el('label', { class: 'muted', style: { fontSize: '12px' } }, 'العدد'), amt,
+        el('label', { class: 'muted', style: { fontSize: '12px' } }, 'طريقة الاستلام'), methodSel,
+        submit,
+        el('button', { class: 'btn-ghost', style: { width: '100%' }, onclick: close }, 'إلغاء'),
+      ]));
+      submit.onclick = async () => {
+        const n = parseInt(amt.value, 10);
+        if (!n || n < 100) return toast('الحد الأدنى للسحب 100 عملة');
+        submit.disabled = true; submit.textContent = 'جاري التحويل...';
+        try {
+          const newBal = await window.API.selfWithdraw(n, methodSel.value);
+          balanceEl.textContent = '🪙 ' + (newBal || 0);
+          toast('تم تسجيل طلب السحب — سيصلك المبلغ خلال 3-5 أيام عمل');
+          close();
+          const tx = await window.API.fetchWalletTx('all');
+          DB.wallet.transactions = tx.map(t => ({ id: t.id, type: t.type, title: t.description || t.type, sub: '', amount: t.amount, time: new Date(t.created_at).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' }) }));
+          rebuild();
+        } catch (e) { toast(e.message || 'فشل السحب'); submit.disabled = false; submit.textContent = 'تأكيد السحب'; }
+      };
+    }
     let active = 'all';
     const tabs = el('div', { class: 'wallet-tabs' });
     [['all', 'الكل'], ['in', 'إيرادات'], ['out', 'صادر']].forEach(([k, l]) => tabs.appendChild(el('button', { class: 'wallet-tab' + (k === active ? ' active' : ''), onclick: e => { active = k; tabs.querySelectorAll('.wallet-tab').forEach(x => x.classList.remove('active')); e.currentTarget.classList.add('active'); rebuild(); } }, l)));
@@ -2207,6 +2289,54 @@
         rebuild();
       } catch (e) { console.warn('wallet:', e); }
     })();
+    return root;
+  };
+
+  // ===== Blocked users =====
+  V.blockedUsers = () => {
+    hideNav();
+    const root = el('section', { class: 'settings' });
+    root.appendChild(topBar({ title: 'المستخدمون المحظورون' }));
+    const list = el('div', { class: 'user-list' });
+    root.appendChild(list);
+
+    async function load() {
+      list.innerHTML = '<div class="muted" style="padding:30px;text-align:center">جاري التحميل...</div>';
+      try {
+        if (!window.API) return;
+        const rows = await window.API.fetchBlocked();
+        list.innerHTML = '';
+        if (!rows.length) {
+          list.appendChild(el('div', { class: 'empty-state', style: { padding: '60px 20px', textAlign: 'center', color: 'var(--muted)' } }, [
+            el('div', { style: { fontSize: '38px', marginBottom: '8px' } }, '🚫'),
+            el('div', {}, 'لا يوجد مستخدمون محظورون'),
+            el('div', { style: { fontSize: '12px', marginTop: '6px' } }, 'يمكنك حظر أي شخص من بروفايله'),
+          ]));
+          return;
+        }
+        rows.forEach(r => {
+          const p = r.profiles || { id: r.blocked_id };
+          const row = el('div', { class: 'inbox-item', style: { padding: '12px 14px', borderBottom: '1px solid var(--border)' } });
+          row.innerHTML = `
+            <div class="inbox-avatar" style="width:44px;height:44px"><img src="${p.avatar_url || ''}" onerror="this.style.background='#eee'"/></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600">${p.name || ''}</div>
+              <div class="muted" style="font-size:12px">@${p.handle || ''}</div>
+            </div>
+          `;
+          const unblockBtn = el('button', { class: 'btn btn-secondary', style: { padding: '6px 14px' } }, 'إلغاء الحظر');
+          unblockBtn.onclick = async () => {
+            if (!confirm('إلغاء حظر ' + (p.name || 'هذا المستخدم') + '؟')) return;
+            unblockBtn.disabled = true;
+            try { await window.API.unblockUser(p.id); toast('تم إلغاء الحظر'); load(); }
+            catch (e) { toast(e.message || 'فشل'); unblockBtn.disabled = false; }
+          };
+          row.appendChild(unblockBtn);
+          list.appendChild(row);
+        });
+      } catch (e) { list.innerHTML = '<div class="muted" style="padding:30px;text-align:center;color:var(--danger)">' + e.message + '</div>'; }
+    }
+    load();
     return root;
   };
 
@@ -2256,11 +2386,24 @@
     ]);
 
     // ── Privacy ──
+    const privateToggle = makeToggle(false, async (on) => {
+      if (!window.API) throw new Error('غير متصل');
+      await window.API.setPrivate(on);
+      toast(on ? 'حسابك أصبح خاصًا' : 'حسابك أصبح عامًا');
+    });
+    // Reflect current state from DB
+    (async () => {
+      try {
+        if (!window.API) return;
+        const s = await window.API.fetchMySettings();
+        if (s.is_private) privateToggle.classList.add('on');
+      } catch (e) {}
+    })();
     section('الخصوصية والأمان', [
-      { icon: 'eye', label: 'الحساب خاص', right: makeToggle(false, async () => toast('قريبًا — يحتاج عمود في profiles')) },
+      { icon: 'eye', label: 'الحساب خاص', right: privateToggle },
       { icon: 'user', label: 'من يمكنه مراسلتي', right: el('span', { class: 'muted' }, 'الجميع') },
       { icon: 'comment', label: 'من يمكنه التعليق', right: el('span', { class: 'muted' }, 'الجميع') },
-      { icon: 'lock', label: 'المستخدمون المحظورون', onclick: () => toast('قريبًا — قائمة الحظر') },
+      { icon: 'lock', label: 'المستخدمون المحظورون', onclick: () => go('/blocked') },
       { icon: 'flag', label: 'مراجعة طلبات تتبع موقعي', onclick: async () => {
         try {
           const incoming = await window.API.fetchIncomingPermits();
@@ -2283,7 +2426,10 @@
     // ── Content & Display ──
     section('المحتوى والعرض', [
       { icon: 'globe', label: 'اللغة', right: el('span', { class: 'muted' }, 'العربية') },
-      { icon: 'sparkle', label: 'الوضع الداكن', right: makeToggle(true, async () => toast('قريبًا')) },
+      { icon: 'sparkle', label: 'الوضع الداكن', right: makeToggle(localStorage.getItem('tt-theme') === 'dark', async (on) => {
+        document.body.classList.toggle('dark', on);
+        localStorage.setItem('tt-theme', on ? 'dark' : 'light');
+      }) },
       { icon: 'video', label: 'تشغيل تلقائي للفيديو', right: makeToggle(true, async () => {}) },
       { icon: 'eye', label: 'حفظ بيانات الإنترنت', right: makeToggle(false, async () => {}) },
     ]);
@@ -2310,8 +2456,14 @@
     // ── Danger ──
     section('منطقة الخطر', [
       { icon: 'x', label: 'حذف الحساب نهائيًا', onclick: async () => {
-        if (!confirm('هل أنت متأكد من حذف حسابك؟ لا يمكن التراجع عن هذا الإجراء.')) return;
-        toast('قريبًا — حذف الحساب يحتاج Edge Function');
+        if (!confirm('هل أنت متأكد من حذف حسابك؟\n\nسيتم حذف جميع الفيديوهات والمحفظة والمحادثات. لا يمكن التراجع عن هذا الإجراء.')) return;
+        const word = prompt('للتأكيد، اكتب: حذف');
+        if ((word || '').trim() !== 'حذف') return toast('تم الإلغاء');
+        try {
+          await window.API.selfDeleteAccount();
+          toast('تم حذف حسابك');
+          location.hash = '#/login';
+        } catch (e) { toast(e.message || 'فشل الحذف'); }
       } },
     ]);
 

@@ -454,6 +454,48 @@
   };
 
   // ============================================================
+  // ===== WALKIE-TALKIE — live audio broadcast in chat =========
+  // Uses Supabase Realtime broadcast channel (not Postgres changes).
+  // Sender streams audio chunks as base64; receivers reconstruct
+  // and play in real time. Sub-500ms latency typical.
+  // ============================================================
+  API.openWalkieChannel = (chatId, { onChunk, onSpeakerChange }) => {
+    let channel = null;
+    let cleanup = () => {};
+    (async () => {
+      const c = await client();
+      const me = await uid();
+      channel = c.channel(`walkie:${chatId}`, { config: { broadcast: { ack: false } } });
+      channel
+        .on('broadcast', { event: 'audio' }, ({ payload }) => {
+          if (!payload || payload.from === me) return;
+          onChunk && onChunk(payload);
+        })
+        .on('broadcast', { event: 'talking' }, ({ payload }) => {
+          if (!payload || payload.from === me) return;
+          onSpeakerChange && onSpeakerChange(payload);
+        })
+        .subscribe();
+      cleanup = () => { try { channel.unsubscribe(); } catch (e) {} };
+    })();
+    return {
+      // Send one chunk of audio
+      sendChunk: async ({ data, mime, seq }) => {
+        if (!channel) return;
+        const me = await uid();
+        await channel.send({ type: 'broadcast', event: 'audio', payload: { from: me, data, mime, seq, t: Date.now() } });
+      },
+      // Notify everyone that someone started/stopped talking
+      sendTalking: async (isTalking, name) => {
+        if (!channel) return;
+        const me = await uid();
+        await channel.send({ type: 'broadcast', event: 'talking', payload: { from: me, isTalking, name, t: Date.now() } });
+      },
+      close: () => cleanup(),
+    };
+  };
+
+  // ============================================================
   // ===================== LOCATION PERMITS =======================
   // A → asks B for location → B approves/denies → A can track until revoked
   // ============================================================

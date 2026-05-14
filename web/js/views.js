@@ -934,52 +934,87 @@
 
     const inputField = el('input', { placeholder: 'اكتب رسالة...', id: 'chat-input-field' });
 
-    // ─── Push-to-talk button (hold to record + send as voice message) ───
-    const pttBtn = el('button', { class: 'icon-btn', html: icons.mic, style: { transition: 'transform 120ms ease, background 120ms ease', borderRadius: '50%' } });
+    // ─── TRUE Walkie-Talkie button — live audio broadcast while holding ───
+    const pttBtn = el('button', { class: 'icon-btn', html: icons.mic, title: 'اضغط مطولًا للتحدث', style: { transition: 'transform 120ms ease, background 120ms ease', borderRadius: '50%' } });
+    const talkingBanner = el('div', { style: { display: 'none', position: 'absolute', top: '0', left: '0', right: '0', background: 'var(--danger)', color: '#fff', textAlign: 'center', padding: '6px 10px', fontSize: '12.5px', fontWeight: 700, zIndex: '10' } });
+    root.appendChild(talkingBanner);
+
+    // Receiver side — play incoming audio chunks live + show "X talking" banner
+    let receivedSeq = -1;
+    let walkie = null;
+    if (window.API && typeof id === 'string' && id.length >= 30) {
+      walkie = window.API.openWalkieChannel(id, {
+        onChunk: ({ data, mime, seq }) => {
+          // Reconstruct blob from base64 and play immediately
+          try {
+            const bin = atob(data);
+            const arr = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+            const blob = new Blob([arr], { type: mime || 'audio/webm' });
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.play().catch(() => {}); // browsers may block autoplay; first user gesture unblocks
+            audio.onended = () => URL.revokeObjectURL(url);
+          } catch (e) { console.warn('chunk play:', e); }
+        },
+        onSpeakerChange: ({ isTalking, name }) => {
+          if (isTalking) {
+            talkingBanner.textContent = '🎙️ ' + (name || 'مستخدم') + ' يتحدث الآن...';
+            talkingBanner.style.display = 'block';
+          } else {
+            talkingBanner.style.display = 'none';
+          }
+        },
+      });
+    }
+
+    // Sender side
     let pttRecorder = null;
     let pttStream = null;
-    let pttChunks = [];
+    let seq = 0;
     async function startPtt() {
       try {
         pttStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mime = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
-        pttRecorder = new MediaRecorder(pttStream, mime ? { mimeType: mime } : undefined);
-        pttChunks = [];
-        pttRecorder.ondataavailable = e => { if (e.data && e.data.size) pttChunks.push(e.data); };
-        pttRecorder.start();
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm');
+        pttRecorder = new MediaRecorder(pttStream, { mimeType: mime, audioBitsPerSecond: 32000 });
+        seq = 0;
+        pttRecorder.ondataavailable = async e => {
+          if (!e.data || !e.data.size) return;
+          // Encode to base64 and broadcast immediately
+          const buf = await e.data.arrayBuffer();
+          let binary = '';
+          const bytes = new Uint8Array(buf);
+          for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+          const b64 = btoa(binary);
+          if (walkie) walkie.sendChunk({ data: b64, mime, seq: seq++ });
+        };
+        // Emit every 250ms for ~real-time feel
+        pttRecorder.start(250);
+        const myName = (await window.SB.getUser())?.user_metadata?.name || 'أنت';
+        if (walkie) walkie.sendTalking(true, myName);
         pttBtn.style.background = 'var(--danger)';
         pttBtn.style.color = '#fff';
         pttBtn.style.transform = 'scale(1.3)';
-        toast('🎙️ يتم التسجيل... ارفع إصبعك للإرسال');
       } catch (e) { toast('السماح بالميكروفون مطلوب'); }
     }
-    function stopPtt() {
+    async function stopPtt() {
       pttBtn.style.background = '';
       pttBtn.style.color = '';
       pttBtn.style.transform = '';
       if (!pttRecorder || pttRecorder.state === 'inactive') return;
-      pttRecorder.onstop = async () => {
-        if (pttStream) pttStream.getTracks().forEach(t => t.stop());
-        if (!pttChunks.length) return;
-        const ext = (pttRecorder.mimeType || '').includes('mp4') ? 'm4a' : 'webm';
-        const blob = new Blob(pttChunks, { type: pttRecorder.mimeType || 'audio/' + ext });
-        const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: blob.type });
-        const tempMsg = { from_user_id: myUserId || 'me', text: '🎤 رسالة صوتية', created_at: new Date().toISOString(), type: 'voice', attachment_url: URL.createObjectURL(blob) };
-        appendMessage(tempMsg); msgs.scrollTop = msgs.scrollHeight;
-        if (window.API && typeof id === 'string' && id.length >= 30) {
-          try { await window.API.sendMessage({ chatId: id, text: '', type: 'voice', file }); }
-          catch (e) { toast('تعذر إرسال الصوت'); }
-        }
-      };
       pttRecorder.stop();
+      if (pttStream) pttStream.getTracks().forEach(t => t.stop());
+      if (walkie) walkie.sendTalking(false);
     }
-    // mouse + touch events for true hold-to-talk
     pttBtn.addEventListener('mousedown', startPtt);
     pttBtn.addEventListener('mouseup', stopPtt);
     pttBtn.addEventListener('mouseleave', stopPtt);
     pttBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startPtt(); }, { passive: false });
     pttBtn.addEventListener('touchend', (e) => { e.preventDefault(); stopPtt(); });
     pttBtn.addEventListener('touchcancel', stopPtt);
+
+    // Cleanup walkie channel when leaving chat
+    window.addEventListener('hashchange', () => { if (walkie) try { walkie.close(); } catch (e) {} }, { once: true });
 
     const inputBar = el('div', { class: 'chat-input' }, [
       el('button', { class: 'icon-btn', html: icons.paperclip, onclick: () => fileInput.click(), title: 'إرفاق ملف' }),

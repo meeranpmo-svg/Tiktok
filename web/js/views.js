@@ -800,7 +800,14 @@
     if (groupName) wrap.appendChild(groupName);
     if (groupPhoto) wrap.appendChild(el('div', { class: 'input-wrap' }, [el('label', { class: 'input-label' }, 'صورة المجموعة (اختياري)'), groupPhoto]));
 
-    wrap.appendChild(el('div', { class: 'input-pill', style: { marginBottom: '10px' } }, [svg('search'), el('input', { id: 'search-users', placeholder: 'ابحث عن مستخدم بالاسم' })]));
+    // Search bar with normal-sized icon (constrained explicitly)
+    const searchIconWrap = el('span', { style: { width: '20px', height: '20px', display: 'inline-flex', flexShrink: '0', color: 'var(--muted)' } });
+    searchIconWrap.appendChild(svg('search'));
+    searchIconWrap.firstChild.setAttribute('width', '20');
+    searchIconWrap.firstChild.setAttribute('height', '20');
+    searchIconWrap.firstChild.style.width = '20px';
+    searchIconWrap.firstChild.style.height = '20px';
+    wrap.appendChild(el('div', { class: 'input-pill', style: { marginBottom: '10px' } }, [searchIconWrap, el('input', { id: 'search-users', placeholder: 'ابحث عن مستخدم بالاسم' })]));
     const userList = el('div', { class: 'list-screen' });
     wrap.appendChild(userList);
     const errBox = el('div', { class: 'error-box', hidden: true });
@@ -808,6 +815,8 @@
 
     const selected = new Set();
     let allUsers = [];
+    let myId = null;
+    (async () => { try { const u = await window.SB.getUser(); myId = u && u.id; renderUsers(); } catch (e) {} })();
 
     async function search(q) {
       try {
@@ -817,7 +826,13 @@
     }
     function renderUsers() {
       userList.innerHTML = '';
-      allUsers.forEach(u => {
+      // Filter out current user so they can't try to DM themselves
+      const filtered = allUsers.filter(u => u.id !== myId);
+      if (!filtered.length) {
+        userList.appendChild(el('div', { style: { padding: '40px', textAlign: 'center', color: 'var(--muted)' } }, 'لا يوجد مستخدمون آخرون بعد. ادعُ صديقاً للانضمام.'));
+        return;
+      }
+      filtered.forEach(u => {
         const isSel = selected.has(u.id);
         userList.appendChild(el('div', { class: 'user-row', style: { background: isSel ? 'var(--primary-soft)' : '' }, onclick: () => {
           if (isGroup) { isSel ? selected.delete(u.id) : selected.add(u.id); renderUsers(); }
@@ -833,10 +848,15 @@
       });
     }
     async function goCreateDm(otherId) {
+      if (otherId === myId) { errBox.textContent = 'لا يمكنك مراسلة نفسك'; errBox.hidden = false; return; }
       try {
         const id = await window.API.openOrCreateDm(otherId);
         go('/chat/' + id);
-      } catch (e) { errBox.textContent = e.message; errBox.hidden = false; }
+      } catch (e) {
+        const m = e.message || '';
+        errBox.textContent = /cannot DM yourself/i.test(m) ? 'لا يمكنك مراسلة نفسك' : m;
+        errBox.hidden = false;
+      }
     }
     if (isGroup) {
       const createBtn = el('button', { class: 'btn btn-pill', style: { marginTop: '14px' }, onclick: async () => {

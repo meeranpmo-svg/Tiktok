@@ -1,6 +1,6 @@
 /* === Admin dashboard SPA === */
 (function () {
-  const { el, esc, fmt, toast, icons, svg } = window.H;
+  const { el, esc, safeUrl, fmt, toast, icons, svg } = window.H;
   const DB = window.DB;
 
   const root = document.getElementById('admin');
@@ -325,20 +325,36 @@
           const isBanned = u.banned_until && new Date(u.banned_until) > new Date();
           const status = isBanned ? { l: 'محظور', c: 'danger' } : u.is_admin ? { l: 'مشرف', c: 'primary' } : { l: 'نشط', c: 'success' };
           const tr = el('tr', { style: { cursor: 'pointer' } });
-          tr.innerHTML = `
-            <td><div class="user-cell"><div class="av"><img src="${u.avatar_url || ''}" onerror="this.style.background='#ddd'"></div><div><div class="nm">${u.name || ''}${u.verified ? ' ✓' : ''}</div><div class="em">@${u.handle || ''}</div></div></div></td>
-            <td>${fmt(u.followers_count || 0)}</td>
-            <td><span class="badge ${status.c}">${status.l}</span></td>
-            <td>${new Date(u.created_at).toLocaleDateString('ar-SA')}</td>
-            <td><div class="row-actions">
-              <button class="btn-sm" data-act="open">إدارة</button>
-              <button class="btn-sm btn-${isBanned ? 'secondary' : 'danger'}" data-act="ban">${isBanned ? 'إلغاء الحظر' : 'حظر'}</button>
-            </div></td>`;
+
+          // ── User cell: safely build avatar + name + handle with no innerHTML interpolation ──
+          const avImg = document.createElement('img');
+          const safeAv = safeUrl(u.avatar_url);
+          if (safeAv) avImg.src = safeAv;
+          avImg.onerror = () => { avImg.style.background = '#ddd'; avImg.removeAttribute('src'); };
+          const userCell = el('td', {}, [
+            el('div', { class: 'user-cell' }, [
+              el('div', { class: 'av' }, [avImg]),
+              el('div', {}, [
+                el('div', { class: 'nm' }, (u.name || '') + (u.verified ? ' ✓' : '')),
+                el('div', { class: 'em' }, '@' + (u.handle || '')),
+              ]),
+            ]),
+          ]);
+
+          const openBtn = el('button', { class: 'btn-sm', 'data-act': 'open' }, 'إدارة');
+          const banBtn = el('button', { class: 'btn-sm btn-' + (isBanned ? 'secondary' : 'danger'), 'data-act': 'ban' }, isBanned ? 'إلغاء الحظر' : 'حظر');
+
+          tr.appendChild(userCell);
+          tr.appendChild(el('td', {}, fmt(u.followers_count || 0)));
+          tr.appendChild(el('td', {}, [el('span', { class: 'badge ' + status.c }, status.l)]));
+          tr.appendChild(el('td', {}, new Date(u.created_at).toLocaleDateString('ar-SA')));
+          tr.appendChild(el('td', {}, [el('div', { class: 'row-actions' }, [openBtn, banBtn])]));
+
           // Whole row + "إدارة" button → open detail modal
           const openModal = (e) => { e && e.stopPropagation(); openUserModal(u); };
           tr.addEventListener('click', openModal);
-          tr.querySelector('[data-act="open"]').onclick = openModal;
-          tr.querySelector('[data-act="ban"]').onclick = async (e) => {
+          openBtn.onclick = openModal;
+          banBtn.onclick = async (e) => {
             e.stopPropagation();
             const days = isBanned ? null : prompt('عدد أيام الحظر (فارغ = دائم):', '7');
             if (days === null && !isBanned) return;
@@ -534,22 +550,55 @@
           const status = v.is_draft ? ['warn', 'مسودة'] : ['success', 'منشور'];
           const tr = el('tr');
           const isVid = v.video_url && /\.(mp4|mov|webm)/i.test(v.video_url);
-          const thumbHtml = isVid
-            ? `<video src="${v.video_url}" muted loop playsinline style="width:100%;height:100%;object-fit:cover" onmouseover="this.play()" onmouseout="this.pause()"></video>`
-            : `<img src="${v.thumbnail || v.video_url || ''}" />`;
-          tr.innerHTML = `
-            <td><div style="display:flex;gap:10px;align-items:center"><div class="vthumb">${thumbHtml}</div><div style="min-width:0;flex:1"><div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${(v.description || '').slice(0, 40) || '(بلا وصف)'}</div><div class="muted" style="font-size:11.5px">${new Date(v.created_at).toLocaleString('ar-SA')}</div></div></div></td>
-            <td>${(v.user && v.user.name) || ''}<div class="muted" style="font-size:11.5px">@${(v.user && v.user.handle) || ''}</div></td>
-            <td>${fmt(v.views_count || 0)}</td>
-            <td>${fmt(v.likes_count || 0)}</td>
-            <td>${v.comments_count || 0}</td>
-            <td><span class="badge ${status[0]}">${status[1]}</span></td>
-            <td><div class="row-actions">
-              <button class="btn-sm btn-secondary" data-act="view">عرض</button>
-              <button class="btn-sm btn-danger" data-act="del">حذف</button>
-            </div></td>`;
-          tr.querySelector('[data-act="view"]').onclick = () => window.open(v.video_url || v.thumbnail, '_blank');
-          tr.querySelector('[data-act="del"]').onclick = async () => {
+
+          // Build the thumbnail element via DOM, not innerHTML, so user-controlled URLs
+          // can never break out of the src attribute.
+          let thumb;
+          if (isVid) {
+            thumb = document.createElement('video');
+            const safe = safeUrl(v.video_url);
+            if (safe) thumb.src = safe;
+            Object.assign(thumb, { muted: true, loop: true, playsInline: true });
+            Object.assign(thumb.style, { width: '100%', height: '100%', objectFit: 'cover' });
+            thumb.addEventListener('mouseover', () => thumb.play().catch(() => {}));
+            thumb.addEventListener('mouseout',  () => thumb.pause());
+          } else {
+            thumb = document.createElement('img');
+            const safe = safeUrl(v.thumbnail || v.video_url);
+            if (safe) thumb.src = safe;
+          }
+
+          const descText = (v.description || '').slice(0, 40) || '(بلا وصف)';
+          const userName = (v.user && v.user.name) || '';
+          const userHandle = (v.user && v.user.handle) || '';
+
+          const openBtn = el('button', { class: 'btn-sm btn-secondary' }, 'عرض');
+          const delBtn = el('button', { class: 'btn-sm btn-danger' }, 'حذف');
+
+          tr.appendChild(el('td', {}, [
+            el('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } }, [
+              el('div', { class: 'vthumb' }, [thumb]),
+              el('div', { style: { minWidth: 0, flex: 1 } }, [
+                el('div', { style: { fontWeight: 700, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' } }, descText),
+                el('div', { class: 'muted', style: { fontSize: '11.5px' } }, new Date(v.created_at).toLocaleString('ar-SA')),
+              ]),
+            ]),
+          ]));
+          tr.appendChild(el('td', {}, [
+            document.createTextNode(userName),
+            el('div', { class: 'muted', style: { fontSize: '11.5px' } }, '@' + userHandle),
+          ]));
+          tr.appendChild(el('td', {}, fmt(v.views_count || 0)));
+          tr.appendChild(el('td', {}, fmt(v.likes_count || 0)));
+          tr.appendChild(el('td', {}, String(v.comments_count || 0)));
+          tr.appendChild(el('td', {}, [el('span', { class: 'badge ' + status[0] }, status[1])]));
+          tr.appendChild(el('td', {}, [el('div', { class: 'row-actions' }, [openBtn, delBtn])]));
+
+          openBtn.onclick = () => {
+            const u = safeUrl(v.video_url || v.thumbnail);
+            if (u) window.open(u, '_blank', 'noopener,noreferrer');
+          };
+          delBtn.onclick = async () => {
             if (!confirm('حذف هذا الفيديو نهائيًا؟')) return;
             try { await window.API.adminDeleteVideo(v.id); toast('تم الحذف'); load(); }
             catch (e) { toast(e.message); }
@@ -1043,11 +1092,25 @@
         if (!logs.length) { tb.innerHTML = '<tr><td colspan="4" class="table-empty">لم يتم تسجيل أي نشاط بعد</td></tr>'; return; }
         logs.forEach(L => {
           const tr = el('tr');
-          tr.innerHTML = `
-            <td><div class="user-cell"><div class="av"><img src="${(L.admin && L.admin.avatar_url) || ''}"></div><span>${(L.admin && L.admin.name) || '-'}</span></div></td>
-            <td><strong>${L.action.replace(/_/g, ' ')}</strong></td>
-            <td class="muted">${L.target_type || '-'} ${L.target_id ? '<code style="font-size:11px">' + (L.target_id + '').slice(0, 8) + '</code>' : ''}</td>
-            <td>${new Date(L.created_at).toLocaleString('ar-SA')}</td>`;
+          const av = document.createElement('img');
+          const safeAv = safeUrl(L.admin && L.admin.avatar_url);
+          if (safeAv) av.src = safeAv;
+          const actionText = (L.action || '').replace(/_/g, ' ');
+          const targetType = L.target_type || '-';
+
+          tr.appendChild(el('td', {}, [
+            el('div', { class: 'user-cell' }, [
+              el('div', { class: 'av' }, [av]),
+              el('span', {}, (L.admin && L.admin.name) || '-'),
+            ]),
+          ]));
+          tr.appendChild(el('td', {}, [el('strong', {}, actionText)]));
+          const targetCell = el('td', { class: 'muted' }, [document.createTextNode(targetType + ' ')]);
+          if (L.target_id) {
+            targetCell.appendChild(el('code', { style: { fontSize: '11px' } }, String(L.target_id).slice(0, 8)));
+          }
+          tr.appendChild(targetCell);
+          tr.appendChild(el('td', {}, new Date(L.created_at).toLocaleString('ar-SA')));
           tb.appendChild(tr);
         });
       } catch (e) { tb.innerHTML = '<tr><td colspan="4" class="table-empty">' + e.message + '</td></tr>'; }

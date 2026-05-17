@@ -23,6 +23,22 @@ window.H = (function () {
     return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   }
 
+  // Allow only http(s) and data:image URLs through to img.src — blocks javascript:, vbscript:, etc.
+  // Use this for any URL that originates from user-controlled storage (avatar_url, video_url, thumbnail).
+  function safeUrl(u) {
+    if (u == null) return '';
+    const s = String(u).trim();
+    if (!s) return '';
+    // Allow protocol-relative and absolute http(s)
+    if (/^https?:\/\//i.test(s)) return s;
+    if (/^\/\//.test(s)) return s;
+    // Allow same-origin relative paths (start with /)
+    if (s.startsWith('/')) return s;
+    // Allow inline data images only (no html/svg)
+    if (/^data:image\/(png|jpe?g|gif|webp|avif|heic);base64,/i.test(s)) return s;
+    return ''; // drop everything else (javascript:, vbscript:, file:, etc.)
+  }
+
   function fmt(n) {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
     if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
@@ -166,5 +182,5 @@ window.H = (function () {
     return w;
   }
 
-  return { el, esc, fmt, go, back, toast, modal, icons, svg, bottomNav, hideNav, topBar, avatar };
+  return { el, esc, safeUrl, fmt, go, back, toast, modal, icons, svg, bottomNav, hideNav, topBar, avatar };
 })();

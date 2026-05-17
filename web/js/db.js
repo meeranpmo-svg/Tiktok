@@ -597,18 +597,34 @@
     if (error) throw error;
   };
 
+  // NOTE: After migration 0007, the self_topup / self_withdraw RPCs are no longer
+  // callable from the client. Top-ups must come from a verified payment webhook
+  // (Edge Function → service-role → self_topup). For demo, admins can credit any
+  // balance via the admin panel (admin_adjust_wallet, which IS gated).
+  // We keep the client-side functions so the wallet UI can surface a clear,
+  // localized error instead of a raw Postgres "permission denied" message.
   API.selfTopup = async (amount, pkg = null) => {
     const c = await client();
     const { data, error } = await c.rpc('self_topup', { p_amount: amount, p_package: pkg });
-    if (error) throw error;
-    return data; // new balance
+    if (error) {
+      if (/permission denied|not allowed|insufficient/i.test(error.message || '')) {
+        throw new Error('سيتم تفعيل الدفع عبر Apple Pay / Stripe قبل الإطلاق الرسمي. للاختبار اطلب من المشرف شحن رصيدك.');
+      }
+      throw error;
+    }
+    return data;
   };
 
   API.selfWithdraw = async (amount, method = null) => {
     const c = await client();
     const { data, error } = await c.rpc('self_withdraw', { p_amount: amount, p_method: method });
-    if (error) throw error;
-    return data; // new balance
+    if (error) {
+      if (/permission denied|not allowed/i.test(error.message || '')) {
+        throw new Error('السحب يتطلب التحقق من الهوية — سيتم تفعيله قبل الإطلاق.');
+      }
+      throw error;
+    }
+    return data;
   };
 
   API.selfDeleteAccount = async () => {

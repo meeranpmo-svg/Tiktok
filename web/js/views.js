@@ -1,6 +1,6 @@
 /* === Mobile views === */
 (function () {
-  const { el, esc, fmt, go, back, toast, modal, icons, svg, bottomNav, hideNav, topBar, avatar } = window.H;
+  const { el, esc, safeUrl, fmt, go, back, toast, modal, icons, svg, bottomNav, hideNav, topBar, avatar } = window.H;
   const DB = window.DB;
   const V = window.Views = {};
 
@@ -1957,15 +1957,22 @@
     }
 
     function makeAvatarIcon(profile, color = '#4ade80', isMe = false) {
-      const url = profile.avatar_url || profile.avatar || '';
+      // Escape every interpolated value. `url` is the only user-controlled string
+      // here — color is a hardcoded literal, isMe is a bool, and the initial is
+      // a single character. We still pass it through esc() defensively.
+      const rawUrl = safeUrl(profile.avatar_url || profile.avatar);
       const ring = isMe ? '#fff' : color;
       const outerBorder = isMe ? `outline: 4px solid ${color};` : '';
+      const initial = esc(String(profile.name || '?').substring(0, 1));
+      const inner = rawUrl
+        ? `<img src="${esc(rawUrl)}" style="width:100%;height:100%;object-fit:cover" />`
+        : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:${color};font-size:18px">${initial}</div>`;
       const html = `
         <div style="width:54px;height:60px;position:relative;">
           <div style="width:48px;height:48px;border-radius:50%;border:3px solid ${ring};${outerBorder}overflow:hidden;background:#ddd;box-shadow:0 4px 14px rgba(0,0,0,0.3);">
-            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover" />` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:${color};font-size:18px">${(profile.name || '?').substring(0, 1)}</div>`}
+            ${inner}
           </div>
-          <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${color};margin-${isMe ? 'left' : 'left'}:20px;margin-top:-2px;"></div>
+          <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${color};margin-left:20px;margin-top:-2px;"></div>
         </div>`;
       return window.L.divIcon({ html, iconSize: [54, 60], iconAnchor: [27, 60], className: 'leaflet-avatar-pin' });
     }
@@ -1981,22 +1988,33 @@
       return 'منذ ' + Math.floor(h / 24) + ' يوم';
     }
 
-    // Rich Snap-style popup: big avatar, name, last seen, two action buttons
-    function popupHtml(profile, l) {
-      const url = profile.avatar_url || profile.avatar || '';
-      const initial = (profile.name || '?').substring(0, 1);
-      return `
-        <div style="min-width:200px;text-align:center;font-family:Cairo,sans-serif" dir="rtl">
-          <div style="width:64px;height:64px;border-radius:50%;overflow:hidden;margin:0 auto 8px;border:3px solid #6c2bd9">
-            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover" />` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#6c2bd9;color:#fff;font-weight:700;font-size:22px">${initial}</div>`}
-          </div>
-          <div style="font-weight:700;font-size:14px">${profile.name || ''}</div>
-          <div style="color:#888;font-size:11.5px;margin-bottom:8px">${ago(l.updated_at)}</div>
-          <div style="display:flex;gap:6px;justify-content:center">
-            <a href="#/chat-new/dm?to=${profile.id}" style="flex:1;background:#6c2bd9;color:#fff;padding:6px 8px;border-radius:6px;text-decoration:none;font-size:12px">💬 رسالة</a>
-            <a href="#/profile/${profile.id}" style="flex:1;background:#f3f4f6;color:#111;padding:6px 8px;border-radius:6px;text-decoration:none;font-size:12px">👤 البروفايل</a>
-          </div>
-        </div>`;
+    // Rich Snap-style popup: returns a real DOM node (never an HTML string)
+    // so user-controlled profile.name / profile.avatar_url can't be injected.
+    function popupNode(profile, l) {
+      const url = safeUrl(profile.avatar_url || profile.avatar);
+      const initial = String(profile.name || '?').substring(0, 1);
+      // profile.id is a UUID generated server-side; we still validate to be safe.
+      const safeId = /^[0-9a-f-]{30,40}$/i.test(String(profile.id || '')) ? profile.id : '';
+
+      // Avatar circle: real <img> or initials fallback
+      let avatarChild;
+      if (url) {
+        avatarChild = document.createElement('img');
+        avatarChild.src = url;
+        Object.assign(avatarChild.style, { width: '100%', height: '100%', objectFit: 'cover' });
+      } else {
+        avatarChild = el('div', { style: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#6c2bd9', color: '#fff', fontWeight: '700', fontSize: '22px' } }, initial);
+      }
+
+      return el('div', { style: { minWidth: '200px', textAlign: 'center', fontFamily: 'Cairo, sans-serif' }, dir: 'rtl' }, [
+        el('div', { style: { width: '64px', height: '64px', borderRadius: '50%', overflow: 'hidden', margin: '0 auto 8px', border: '3px solid #6c2bd9' } }, [avatarChild]),
+        el('div', { style: { fontWeight: '700', fontSize: '14px' } }, profile.name || ''),
+        el('div', { style: { color: '#888', fontSize: '11.5px', marginBottom: '8px' } }, ago(l.updated_at)),
+        el('div', { style: { display: 'flex', gap: '6px', justifyContent: 'center' } }, [
+          el('a', { href: safeId ? '#/chat-new/dm?to=' + safeId : '#', style: { flex: '1', background: '#6c2bd9', color: '#fff', padding: '6px 8px', borderRadius: '6px', textDecoration: 'none', fontSize: '12px' } }, '💬 رسالة'),
+          el('a', { href: safeId ? '#/profile/' + safeId : '#', style: { flex: '1', background: '#f3f4f6', color: '#111', padding: '6px 8px', borderRadius: '6px', textDecoration: 'none', fontSize: '12px' } }, '👤 البروفايل'),
+        ]),
+      ]);
     }
 
     async function initMap() {
@@ -2062,21 +2080,29 @@
       // Update list
       sheetList.innerHTML = '';
       items.forEach(it => {
-        const url = (it.profile.avatar_url || it.profile.avatar || '');
-        const initial = (it.profile.name || '?').substring(0, 1);
+        const url = safeUrl(it.profile.avatar_url || it.profile.avatar);
+        const initial = String(it.profile.name || '?').substring(0, 1);
         const row = el('div', { style: {
           display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
           borderTop: '1px solid #f3f4f6', cursor: 'pointer',
         } });
-        row.innerHTML = `
-          <div style="width:42px;height:42px;border-radius:50%;overflow:hidden;border:2px solid ${it.color};flex-shrink:0;background:#eee">
-            ${url ? `<img src="${url}" style="width:100%;height:100%;object-fit:cover"/>` : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:${it.color};color:#fff;font-weight:700">${initial}</div>`}
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:13.5px">${it.profile.name || ''}</div>
-            <div style="color:#888;font-size:11.5px">@${it.profile.handle || ''} · ${ago(it.l.updated_at)}</div>
-          </div>
-        `;
+
+        // Avatar circle, built as DOM (no innerHTML interpolation of user data)
+        let avatarChild;
+        if (url) {
+          avatarChild = document.createElement('img');
+          avatarChild.src = url;
+          Object.assign(avatarChild.style, { width: '100%', height: '100%', objectFit: 'cover' });
+        } else {
+          avatarChild = el('div', { style: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: it.color, color: '#fff', fontWeight: '700' } }, initial);
+        }
+        row.appendChild(el('div', { style: { width: '42px', height: '42px', borderRadius: '50%', overflow: 'hidden', border: '2px solid ' + it.color, flexShrink: '0', background: '#eee' } }, [avatarChild]));
+
+        row.appendChild(el('div', { style: { flex: '1', minWidth: '0' } }, [
+          el('div', { style: { fontWeight: '600', fontSize: '13.5px' } }, it.profile.name || ''),
+          el('div', { style: { color: '#888', fontSize: '11.5px' } }, '@' + (it.profile.handle || '') + ' · ' + ago(it.l.updated_at)),
+        ]));
+
         const chatBtn = el('button', { class: 'btn-sm', style: { background: '#6c2bd9', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '6px', fontSize: '12px' } }, '💬');
         chatBtn.onclick = async (e) => {
           e.stopPropagation();
@@ -2108,11 +2134,11 @@
           if (markers.has(l.user_id)) {
             const existing = markers.get(l.user_id);
             existing.setLatLng([l.lat, l.lng]);
-            existing.setPopupContent(popupHtml(profile, l));
+            existing.setPopupContent(popupNode(profile, l));
           } else {
             const m = window.L.marker([l.lat, l.lng], { icon: makeAvatarIcon(profile, color) })
               .addTo(map)
-              .bindPopup(popupHtml(profile, l));
+              .bindPopup(popupNode(profile, l));
             markers.set(l.user_id, m);
           }
         }
@@ -2317,13 +2343,19 @@
         rows.forEach(r => {
           const p = r.profiles || { id: r.blocked_id };
           const row = el('div', { class: 'inbox-item', style: { padding: '12px 14px', borderBottom: '1px solid var(--border)' } });
-          row.innerHTML = `
-            <div class="inbox-avatar" style="width:44px;height:44px"><img src="${p.avatar_url || ''}" onerror="this.style.background='#eee'"/></div>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600">${p.name || ''}</div>
-              <div class="muted" style="font-size:12px">@${p.handle || ''}</div>
-            </div>
-          `;
+
+          // Avatar: safe DOM-built <img> with URL whitelist
+          const avImg = document.createElement('img');
+          const safeAv = safeUrl(p.avatar_url);
+          if (safeAv) avImg.src = safeAv;
+          avImg.onerror = () => { avImg.style.background = '#eee'; avImg.removeAttribute('src'); };
+          row.appendChild(el('div', { class: 'inbox-avatar', style: { width: '44px', height: '44px' } }, [avImg]));
+
+          row.appendChild(el('div', { style: { flex: '1', minWidth: '0' } }, [
+            el('div', { style: { fontWeight: '600' } }, p.name || ''),
+            el('div', { class: 'muted', style: { fontSize: '12px' } }, '@' + (p.handle || '')),
+          ]));
+
           const unblockBtn = el('button', { class: 'btn btn-secondary', style: { padding: '6px 14px' } }, 'إلغاء الحظر');
           unblockBtn.onclick = async () => {
             if (!confirm('إلغاء حظر ' + (p.name || 'هذا المستخدم') + '؟')) return;

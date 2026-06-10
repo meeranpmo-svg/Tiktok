@@ -80,6 +80,8 @@
           app.innerHTML = '';
           const node = r.v(q, m);
           if (node) app.appendChild(node);
+          // Translate the freshly-rendered view to English when that language is active
+          try { if (window.I18N) window.I18N.apply(app); } catch (e) {}
           window.scrollTo(0, 0);
         } catch (e) {
           console.error('render error', e);
@@ -101,6 +103,8 @@
   }
 
   window.addEventListener('hashchange', render);
+  // Language switch re-renders the current view from its Arabic source
+  window.addEventListener('tt-rerender', render);
   window.addEventListener('DOMContentLoaded', render);
   if (document.readyState !== 'loading') render();
 })();

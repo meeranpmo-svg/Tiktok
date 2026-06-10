@@ -1,0 +1,549 @@
+/* === Tenth Tone — bilingual (Arabic ⇄ English) layer ===
+ *
+ * The app is authored in Arabic. This module retrofits English on top
+ * WITHOUT touching every view: after each render it walks the DOM and
+ * swaps any text/placeholder/title whose EXACT value is a known UI
+ * label. Exact-match only → user content (names, messages, video
+ * captions) never matches a label key, so it is always left untouched.
+ *
+ * Language is persisted in localStorage('tt-lang'). Switching also flips
+ * <html dir> between rtl/ltr and re-renders the current screen.
+ */
+(function () {
+  'use strict';
+
+  // ── AR → EN dictionary for every static UI string ──
+  const DICT = {
+    // Splash / auth
+    'شارك لحظتك مع العالم': 'Share your moment with the world',
+    'تسجيل الدخول': 'Log in',
+    'إنشاء حساب جديد': 'Create new account',
+    'إنشاء حساب': 'Sign up',
+    'مرحبًا بعودتك': 'Welcome back',
+    'سجّل دخولك للمتابعة': 'Sign in to continue',
+    'البريد الإلكتروني أو رقم الهاتف': 'Email or phone number',
+    'كلمة المرور': 'Password',
+    'نسيت كلمة المرور؟': 'Forgot password?',
+    'ليس لديك حساب؟': "Don't have an account?",
+    'جاري تسجيل الدخول...': 'Signing in...',
+    'بيانات الدخول غير صحيحة': 'Invalid login details',
+    'البريد لم يُفعَّل بعد — تحقق من بريدك': 'Email not verified yet — check your inbox',
+    'الرجاء إدخال جميع الحقول': 'Please fill in all fields',
+    'البريد الإلكتروني': 'Email',
+    'رقم الهاتف': 'Phone number',
+    'تأكيد كلمة المرور': 'Confirm password',
+    'كلمة المرور 8 أحرف على الأقل': 'Password must be at least 8 characters',
+    'كلمتا المرور غير متطابقتين': 'Passwords do not match',
+    'اسم المستخدم محجوز': 'Username is taken',
+    'البريد مسجَّل مسبقًا': 'Email is already registered',
+    'بإنشاء حساب أنت توافق على الشروط وسياسة الخصوصية.': 'By creating an account you agree to the Terms and Privacy Policy.',
+    'جاري إنشاء الحساب...': 'Creating account...',
+    'أدخل رمز التحقق': 'Enter verification code',
+    'أرسلنا لك رمزًا مكونًا من 6 أرقام': 'We sent you a 6-digit code',
+    'تم إرسال رمز التحقق': 'Verification code sent',
+    'تم إرسال الرمز مرة أخرى': 'Code sent again',
+    'لم يصلك الرمز؟': "Didn't get the code?",
+    'إعادة الإرسال': 'Resend',
+    'التحقق': 'Verify',
+    'تحقق ومتابعة': 'Verify & continue',
+    'جاري التحقق...': 'Verifying...',
+    'استعادة كلمة المرور': 'Reset password',
+    'سنرسل لك رابط/رمز إعادة تعيين': "We'll send you a reset link/code",
+    'تم إرسال رابط إعادة التعيين إلى بريدك': 'A reset link was sent to your email',
+    'أدخل بريدًا أو رقم هاتف صحيح': 'Enter a valid email or phone number',
+    'كلمة مرور جديدة': 'New password',
+    'أدخل كلمة مرور جديدة': 'Enter a new password',
+    'كلمة المرور الجديدة': 'New password',
+    '8 أحرف على الأقل، تشمل رقمًا ورمزًا.': 'At least 8 characters, including a number and a symbol.',
+    'تم تحديث كلمة المرور': 'Password updated',
+    'حفظ كلمة المرور': 'Save password',
+    'محاولات كثيرة — حاول لاحقًا': 'Too many attempts — try again later',
+    'حدث خطأ، حاول مجددًا': 'Something went wrong, try again',
+    'تعذر الاتصال — تحقق من الإنترنت': 'Connection failed — check your internet',
+    'انتهت الجلسة — أعد التسجيل': 'Session expired — sign in again',
+    'التالي': 'Next',
+
+    // Bottom nav / common
+    'الرئيسية': 'Home',
+    'استكشف': 'Discover',
+    'إنشاء': 'Create',
+    'صندوق الوارد': 'Inbox',
+    'البروفايل': 'Profile',
+    'بحث': 'Search',
+    'إلغاء': 'Cancel',
+    'حذف': 'Delete',
+    'حفظ': 'Save',
+    'إرسال': 'Send',
+    'رد': 'Reply',
+    'مشاركة': 'Share',
+    'متابعة': 'Follow',
+    'تتم المتابعة': 'Following',
+    'مراسلة': 'Message',
+    'تحميل': 'Loading',
+    'جاري التحميل...': 'Loading...',
+    'خطأ': 'Error',
+    'خطأ في التحميل:': 'Load error:',
+    'تم': 'Done',
+    'تم الحفظ': 'Saved',
+    'تم التحديث': 'Updated',
+    'تم الإرسال': 'Sent',
+    'تم الإلغاء': 'Cancelled',
+    'تم النسخ': 'Copied',
+    'تم الرفض': 'Rejected',
+    'فشل': 'Failed',
+    'قريبًا': 'Coming soon',
+    'قيد التطوير': 'Under development',
+    'غير متصل': 'Offline',
+
+    // Home / feed
+    'متصل الآن': 'Online now',
+    'آخر ظهور قريبًا': 'Last seen recently',
+    'إعجاب': 'Like',
+    'إعجابات': 'Likes',
+    'تعليق': 'Comment',
+    'تعليقات': 'Comments',
+    'صوت': 'Sound',
+    'أصوات': 'Sounds',
+    'الأصلي': 'Original',
+
+    // Discover / search
+    'استكشف حسابات': 'Discover accounts',
+    'ابحث عن مستخدمين، فيديوهات، أو هاشتاجات': 'Search users, videos, or hashtags',
+    'ابحث عن مستخدم بالاسم': 'Search for a user by name',
+    'هاشتاجات': 'Hashtags',
+    'هاشتاجات رائجة': 'Trending hashtags',
+    'فيديوهات شائعة': 'Popular videos',
+    'حسابات': 'Accounts',
+    'فلترة بحسب': 'Filter by',
+    'الكل': 'All',
+    'لا يوجد مستخدمون': 'No users',
+
+    // Create / camera / upload
+    'استخدم الكاميرا لتصوير فيديو قصير': 'Use the camera to record a short video',
+    'اختر فيديو أو صورة من المعرض': 'Pick a video or photo from the gallery',
+    'تسجيل فيديو': 'Record video',
+    'كاميرا': 'Camera',
+    'رفع من المعرض بدلًا من ذلك': 'Upload from gallery instead',
+    'رفع من الجهاز': 'Upload from device',
+    'رفع من المعرض': 'Upload from gallery',
+    'اختر ملف فيديو أو صورة أولاً': 'Pick a video or image file first',
+    'المتصفح لا يدعم التسجيل': 'Browser does not support recording',
+    'الرجاء السماح بالوصول إلى الكاميرا والميكروفون.': 'Please allow access to the camera and microphone.',
+    'تعذر فتح الكاميرا': 'Could not open the camera',
+    'معاينة الفيديو': 'Video preview',
+    'تعديل الفيديو': 'Edit video',
+    'صف فيديوك، أضف وسومًا (#) أو ذكر مستخدمين (@)': 'Describe your video, add hashtags (#) or mention users (@)',
+    'إضافة موقع': 'Add location',
+    'الإشارة إلى أشخاص': 'Tag people',
+    'من يستطيع المشاهدة': 'Who can watch',
+    'السماح بالتعليقات': 'Allow comments',
+    'السماح بالحفظ': 'Allow saving',
+    'نشر': 'Post',
+    'جاري النشر...': 'Posting...',
+    'تم النشر بنجاح': 'Posted successfully',
+    'حفظ كمسودة': 'Save as draft',
+    'تم الحفظ كمسودة': 'Saved as draft',
+    'تعذر النشر': 'Could not post',
+    'تعذر الرفع': 'Upload failed',
+    'تعذر الحفظ': 'Could not save',
+    'غلاف': 'Cover',
+    'مؤثرات': 'Effects',
+    'فلاتر': 'Filters',
+    'سرعة': 'Speed',
+    'مؤقت': 'Timer',
+    'موسيقى': 'Music',
+    'نص': 'Text',
+    'ملصقات': 'Stickers',
+    'قوالب جاهزة': 'Ready templates',
+    'ابدأ من قالب وعدّله': 'Start from a template and edit it',
+
+    // Inbox / chat
+    'لا توجد محادثات بعد': 'No conversations yet',
+    'ابدأ محادثة': 'Start a conversation',
+    'محادثة جديدة': 'New chat',
+    'مجموعة جديدة': 'New group',
+    'إنشاء جديد': 'Create new',
+    'اسم المجموعة': 'Group name',
+    'أدخل اسم المجموعة': 'Enter a group name',
+    'صورة المجموعة (اختياري)': 'Group photo (optional)',
+    'إنشاء المجموعة': 'Create group',
+    'اختر عضوًا واحدًا على الأقل': 'Pick at least one member',
+    'اكتب رسالة...': 'Type a message...',
+    'رسالة': 'Message',
+    'أرسل رسالة': 'Send a message',
+    'رسالة صوتية': 'Voice message',
+    'إرفاق ملف': 'Attach file',
+    'إرسال مقطع فيديو': 'Send a video clip',
+    'إرسال الرابط': 'Send link',
+    'اضغط مطولًا للتحدث': 'Hold to talk',
+    'يتحدث الآن...': 'is talking now...',
+    'تعذر إرسال المقطع': 'Could not send the clip',
+    'تعذر فتح المحادثة': 'Could not open the conversation',
+    'لا يمكنك مراسلة نفسك': "You can't message yourself",
+    'تعذر الإرسال': 'Send failed',
+    'مجموعة': 'Group',
+    'محادثة': 'Chat',
+
+    // Notifications
+    'الإشعارات': 'Notifications',
+    'إشعارات': 'Notifications',
+    'لا توجد إشعارات بعد': 'No notifications yet',
+    'أعجبه الفيديو الخاص بك': 'liked your video',
+    'بدأ بمتابعتك': 'started following you',
+    'ذكرك في تعليق': 'mentioned you in a comment',
+    'أرسلت لك هدية': 'sent you a gift',
+    'علّق:': 'commented:',
+    'طلب تتبع موقعك': 'requested to track your location',
+    'وافق على طلب تتبع موقعه': 'Approve their location-tracking request',
+    'رفض طلب تتبع موقعه': 'Deny their location-tracking request',
+    'وافقت على المشاركة': 'You approved sharing',
+    'موافقة': 'Approve',
+    'رفض': 'Deny',
+
+    // Comments
+    'أضف تعليقًا...': 'Add a comment...',
+    'أرسل تعليقًا...': 'Send a comment...',
+    'أرسل': 'Send',
+
+    // Share
+    'مشاركة عبر': 'Share via',
+    'نسخ الرابط': 'Copy link',
+    'إرسال الرابط': 'Send link',
+
+    // Live
+    'بث مباشر': 'Live',
+    'مباشر': 'Live',
+    'بثوث مباشرة': 'Live streams',
+    'البثوث المباشرة': 'Live streams',
+    'ابدأ بثًا مباشرًا': 'Start a live stream',
+    'بدء البث': 'Start streaming',
+    'بدء': 'Start',
+    'جاري البدء...': 'Starting...',
+    'عنوان البث (اختياري)': 'Stream title (optional)',
+    'تواصل مع جمهورك مباشرة': 'Connect with your audience live',
+    'تواصل مع جمهورك مباشرة': 'Connect with your audience live',
+    'بث صوتي مع خلفية — لا يحتاج كاميرا': 'Audio stream with a background — no camera needed',
+    'بث فيديو فعلي عبر الكاميرا والميكروفون': 'Real video stream via camera and microphone',
+    'خلفية فقط': 'Background only',
+    'غير مضبوط — البث بدون فيديو فعلي': 'Not configured — streaming without real video',
+    'تعذر بدء البث': 'Could not start the stream',
+    'لا توجد بثوث الآن': 'No live streams right now',
+
+    // Map / location
+    'خريطة الأصدقاء': 'Friends map',
+    'الأصدقاء': 'Friends',
+    'أنت هنا': 'You are here',
+    'جاري تحميل الخريطة...': 'Loading map...',
+    'اسحب للأعلى لعرض القائمة': 'Swipe up to view the list',
+    'لا يوجد أصدقاء قريبين': 'No friends nearby',
+    'الوضع الخفي': 'Ghost mode',
+    'الوضع الخفي مُعطَّل': 'Ghost mode off',
+    'الوضع الخفي مُفعَّل — موقعك مخفي': 'Ghost mode on — your location is hidden',
+    'على الخريطة': 'on the map',
+    'تتبع على الخريطة الآن': 'Track on the map now',
+    'لم نعثر على هذا الصديق على الخريطة': "Couldn't find this friend on the map",
+    'طلب تتبع الموقع': 'Request location tracking',
+    'في انتظار الموافقة': 'Awaiting approval',
+    'يتم التتبع — اضغط للإلغاء': 'Tracking — tap to cancel',
+    'تم الرفض — أعد الطلب': 'Denied — request again',
+    'تم إرسال طلب التتبع — بانتظار الموافقة': 'Tracking request sent — awaiting approval',
+    'تم إلغاء التتبع': 'Tracking cancelled',
+    'صديق': 'friend',
+    'صديقان': 'friends',
+    'أصدقاء': 'friends',
+
+    // Wallet
+    'المحفظة': 'Wallet',
+    'الرصيد المتاح': 'Available balance',
+    'شحن': 'Top up',
+    'سحب': 'Withdraw',
+    'شحن المحفظة': 'Top up wallet',
+    'سحب الأرباح': 'Withdraw earnings',
+    'الأكثر شعبية': 'Most popular',
+    'أو أدخل عددًا مخصصًا': 'Or enter a custom amount',
+    'شحن مبلغ مخصص': 'Top up a custom amount',
+    'الدفع الفعلي عبر Stripe / Apple Pay سيتم تفعيله قبل الإطلاق الرسمي': 'Real payment via Stripe / Apple Pay will be enabled before the official launch',
+    'الحد الأدنى: 100 عملة': 'Minimum: 100 coins',
+    'الحد الأدنى للسحب 100 عملة': 'Minimum withdrawal is 100 coins',
+    'العدد': 'Amount',
+    'طريقة الاستلام': 'Payout method',
+    'تحويل بنكي': 'Bank transfer',
+    'تأكيد السحب': 'Confirm withdrawal',
+    'جاري التحويل...': 'Processing...',
+    'أدخل عددًا صحيحًا': 'Enter a valid number',
+    'تم شحن': 'Topped up',
+    'عملة': 'coins',
+    'فشل الشحن': 'Top-up failed',
+    'فشل السحب': 'Withdrawal failed',
+    'تم تسجيل طلب السحب — سيصلك المبلغ خلال 3-5 أيام عمل': 'Withdrawal request submitted — funds arrive in 3-5 business days',
+    'رصيد غير كافٍ — اشحن المحفظة': 'Insufficient balance — top up your wallet',
+    'إيرادات': 'Income',
+    'صادر': 'Outgoing',
+    'لا توجد عمليات': 'No transactions',
+    'تعذر إرسال الهدية': 'Could not send the gift',
+    'الهدايا': 'Gifts',
+    'ر.س': 'SAR',
+
+    // Settings
+    'الإعدادات والخصوصية': 'Settings & Privacy',
+    'الحساب': 'Account',
+    'تعديل البروفايل': 'Edit profile',
+    'تغيير كلمة المرور': 'Change password',
+    'كلمة المرور الجديدة (8 أحرف على الأقل):': 'New password (at least 8 characters):',
+    'كلمة المرور قصيرة جدًا': 'Password is too short',
+    'تغيير البريد الإلكتروني': 'Change email',
+    'البريد الإلكتروني الجديد:': 'New email:',
+    'تحقق من بريدك الجديد للتأكيد': 'Check your new inbox to confirm',
+    'الخصوصية والأمان': 'Privacy & Security',
+    'الحساب خاص': 'Private account',
+    'حسابك أصبح خاصًا': 'Your account is now private',
+    'حسابك أصبح عامًا': 'Your account is now public',
+    'من يمكنه مراسلتي': 'Who can message me',
+    'من يمكنه التعليق': 'Who can comment',
+    'الجميع': 'Everyone',
+    'المستخدمون المحظورون': 'Blocked users',
+    'مراجعة طلبات تتبع موقعي': 'Review location-tracking requests',
+    'لا توجد طلبات جديدة': 'No new requests',
+    'طلب — راجعها من شاشة الإشعارات': 'request(s) — review them in Notifications',
+    'المتابعون الجدد': 'New followers',
+    'الرسائل': 'Messages',
+    'المحتوى والعرض': 'Content & Display',
+    'اللغة': 'Language',
+    'العربية': 'Arabic',
+    'الوضع الداكن': 'Dark mode',
+    'تشغيل تلقائي للفيديو': 'Autoplay videos',
+    'حفظ بيانات الإنترنت': 'Data saver',
+    'الموقع الجغرافي': 'Location',
+    'مشاركة موقعي مع': 'Share my location with',
+    'تفعيل مشاركة الموقع': 'Enable location sharing',
+    'تمت مشاركة موقعك': 'Your location is now shared',
+    'تم إيقاف المشاركة': 'Sharing stopped',
+    'الدعم والقانوني': 'Support & Legal',
+    'الإبلاغ عن مشكلة': 'Report a problem',
+    'تواصل معنا': 'Contact us',
+    'الشروط وسياسة الخصوصية': 'Terms & Privacy Policy',
+    'حول التطبيق': 'About',
+    'الإصدار 1.0.0': 'Version 1.0.0',
+    'منطقة الخطر': 'Danger zone',
+    'حذف الحساب نهائيًا': 'Delete account permanently',
+    'هل أنت متأكد من حذف حسابك؟\n\nسيتم حذف جميع الفيديوهات والمحفظة والمحادثات. لا يمكن التراجع عن هذا الإجراء.': 'Are you sure you want to delete your account?\n\nAll videos, wallet, and chats will be deleted. This action cannot be undone.',
+    'للتأكيد، اكتب: حذف': 'To confirm, type: delete',
+    'تم حذف حسابك': 'Your account was deleted',
+    'فشل الحذف': 'Deletion failed',
+    'الإدارة': 'Administration',
+    'فتح لوحة التحكم الإدارية': 'Open admin dashboard',
+
+    // Blocked users
+    'لا يوجد مستخدمون محظورون': 'No blocked users',
+    'يمكنك حظر أي شخص من بروفايله': 'You can block anyone from their profile',
+    'إلغاء الحظر': 'Unblock',
+    'إلغاء حظر': 'Unblock',
+    'تم إلغاء الحظر': 'Unblocked',
+    'هذا المستخدم': 'this user',
+
+    // Profile
+    'تعديل البروفايل': 'Edit profile',
+    'الاسم': 'Name',
+    'اسم المستخدم': 'Username',
+    'النبذة': 'Bio',
+    'تغيير الصورة': 'Change photo',
+    'حفظ التعديلات': 'Save changes',
+    'تم الحفظ': 'Saved',
+    'المتابعون': 'Followers',
+    'المتابَعون': 'Following',
+    'متابعون': 'Followers',
+    'متابَعين': 'Following',
+    'متابَع': 'Following',
+    'متابعون جدد': 'New followers',
+    'فيديوهات': 'Videos',
+    'معجَب بها': 'Liked',
+    'محفوظ': 'Saved',
+    'لا تتابع أي حساب بعد': "You're not following anyone yet",
+    'لا يوجد مستخدمون آخرون بعد. ادعُ صديقاً للانضمام.': 'No other users yet. Invite a friend to join.',
+    'تسجيل الخروج': 'Log out',
+    'تم تسجيل الخروج': 'Logged out',
+    'مستخدم': 'User',
+    'خاص': 'Private',
+    'عام': 'Public',
+    'لك': 'You',
+    'أنت': 'You',
+
+    // Misc / toasts
+    'جاري الإرسال...': 'Sending...',
+    'جاري الإنشاء...': 'Creating...',
+    'جاري الحفظ...': 'Saving...',
+    'تعذر التحديث': 'Could not update',
+    'الآن': 'Now',
+    'منذ': 'ago',
+    'يوم': 'day',
+    'النظام': 'System',
+    'تدرج': 'Gradient',
+    'انضم إلى': 'Join',
+    'سيتم تفعيله قبل الإطلاق الرسمي': 'Will be enabled before the official launch',
+    'السحب يتطلب التحقق من الهوية — سيتم تفعيله قبل الإطلاق.': 'Withdrawal requires identity verification — coming before launch.',
+    'سيتم تفعيل الدفع عبر Apple Pay / Stripe قبل الإطلاق الرسمي. للاختبار اطلب من المشرف شحن رصيدك.': 'Payment via Apple Pay / Stripe will be enabled before launch. For testing, ask an admin to top up your balance.',
+    'السماح بالميكروفون مطلوب': 'Microphone permission is required',
+
+    // Demo seed names (sample content – safe to localize)
+    'مرحبا الجميع': 'Hello everyone',
+    'جميل جدًا': 'Very nice',
+    'شاطئ': 'Beach',
+    'صحراء': 'Desert',
+    'مدينة': 'City',
+    'مسجد': 'Mosque',
+    'قلب': 'Heart',
+  };
+
+  // ── Parametric rules: whole-text-node patterns with a number/word slot ──
+  // Each entry: [regex on the FULL trimmed text, replacement function].
+  const RULES = [
+    [/^منذ (\d+) د$/, (m) => `${m[1]}m ago`],
+    [/^منذ (\d+) س$/, (m) => `${m[1]}h ago`],
+    [/^منذ (\d+) يوم$/, (m) => `${m[1]}d ago`],
+    [/^(\d+)د$/, (m) => `${m[1]}m`],
+    [/^(\d+)س$/, (m) => `${m[1]}h`],
+    [/^(\d+)ي$/, (m) => `${m[1]}d`],
+    [/^إرسال \((\d+)\)$/, (m) => `Send (${m[1]})`],
+    [/^(\d+) (?:صديق|صديقان|أصدقاء) على الخريطة$/, (m) => `${m[1]} friend${m[1] === '1' ? '' : 's'} on the map`],
+    [/^تم شحن (\d+) عملة$/, (m) => `Topped up ${m[1]} coins`],
+    [/^🎙️ (.+) يتحدث الآن\.\.\.$/, (m) => `🎙️ ${m[1]} is talking now...`],
+  ];
+
+  function translate(str) {
+    if (str == null) return str;
+    const key = String(str).trim();
+    if (!key) return str;
+    if (Object.prototype.hasOwnProperty.call(DICT, key)) {
+      // Preserve any surrounding whitespace the original text node had
+      return String(str).replace(key, DICT[key]);
+    }
+    for (let i = 0; i < RULES.length; i++) {
+      const m = key.match(RULES[i][0]);
+      if (m) return String(str).replace(key, RULES[i][1](m));
+    }
+    return str;
+  }
+
+  // ── DOM walking ──
+  const TRANSLATABLE_ATTRS = ['placeholder', 'title', 'aria-label', 'alt'];
+
+  function translateElement(elm) {
+    if (!elm || elm.nodeType !== 1) return;
+    // attributes
+    for (let i = 0; i < TRANSLATABLE_ATTRS.length; i++) {
+      const a = TRANSLATABLE_ATTRS[i];
+      if (elm.hasAttribute && elm.hasAttribute(a)) {
+        const v = elm.getAttribute(a);
+        const tv = translate(v);
+        if (tv !== v) elm.setAttribute(a, tv);
+      }
+    }
+    // <input type=button/submit> value
+    if (elm.tagName === 'INPUT' && (elm.type === 'button' || elm.type === 'submit') && elm.value) {
+      const tv = translate(elm.value);
+      if (tv !== elm.value) elm.value = tv;
+    }
+  }
+
+  function walk(node) {
+    if (!node) return;
+    if (node.nodeType === 3) { // text node
+      const tv = translate(node.nodeValue);
+      if (tv !== node.nodeValue) node.nodeValue = tv;
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    // Skip elements we never want to touch
+    if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') return;
+    translateElement(node);
+    let child = node.firstChild;
+    while (child) { walk(child); child = child.nextSibling; }
+  }
+
+  function apply(root) {
+    if (getLang() !== 'en') return;
+    walk(root || document.body);
+  }
+
+  // ── Language state ──
+  function getLang() {
+    try { return localStorage.getItem('tt-lang') === 'en' ? 'en' : 'ar'; }
+    catch (e) { return 'ar'; }
+  }
+
+  function applyDir(lang) {
+    const html = document.documentElement;
+    html.setAttribute('lang', lang === 'en' ? 'en' : 'ar');
+    html.setAttribute('dir', lang === 'en' ? 'ltr' : 'rtl');
+    document.body.classList.toggle('lang-en', lang === 'en');
+  }
+
+  function setLang(lang) {
+    lang = lang === 'en' ? 'en' : 'ar';
+    try { localStorage.setItem('tt-lang', lang); } catch (e) {}
+    applyDir(lang);
+    // Re-render the current view from its Arabic source; the observer +
+    // apply() pass then translates to English when needed.
+    window.dispatchEvent(new Event('tt-rerender'));
+  }
+
+  function toggleLang() { setLang(getLang() === 'en' ? 'ar' : 'en'); }
+
+  // ── MutationObserver: catch async DOM (feeds, modals, toasts) ──
+  function startObserver() {
+    const obs = new MutationObserver((mutations) => {
+      if (getLang() !== 'en') return;
+      for (let i = 0; i < mutations.length; i++) {
+        const mut = mutations[i];
+        if (mut.type === 'childList') {
+          mut.addedNodes.forEach((n) => walk(n));
+        } else if (mut.type === 'attributes' && mut.target) {
+          translateElement(mut.target);
+        } else if (mut.type === 'characterData' && mut.target) {
+          const t = mut.target;
+          const tv = translate(t.nodeValue);
+          if (tv !== t.nodeValue) t.nodeValue = tv;
+        }
+      }
+    });
+    obs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: TRANSLATABLE_ATTRS,
+    });
+  }
+
+  // ── Patch native dialogs so confirm/prompt/alert show English too ──
+  function patchDialogs() {
+    ['alert', 'confirm', 'prompt'].forEach((fn) => {
+      const orig = window[fn];
+      if (typeof orig !== 'function' || orig.__ttPatched) return;
+      const wrapped = function (msg) {
+        if (getLang() === 'en' && typeof msg === 'string') {
+          msg = translate(msg);
+        }
+        return orig.apply(window, [msg].concat([].slice.call(arguments, 1)));
+      };
+      wrapped.__ttPatched = true;
+      try { window[fn] = wrapped; } catch (e) {}
+    });
+  }
+
+  // ── Public API ──
+  window.I18N = {
+    t: translate,
+    apply,
+    getLang,
+    setLang,
+    toggleLang,
+    DICT,
+  };
+
+  // Boot
+  applyDir(getLang());
+  patchDialogs();
+  if (document.body) startObserver();
+  else document.addEventListener('DOMContentLoaded', startObserver);
+})();

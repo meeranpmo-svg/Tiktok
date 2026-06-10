@@ -556,3 +556,27 @@ body.dark .bubble.them { background: #1f1f24; color: var(--text); }
 body.dark .topbar { background: var(--bg); color: var(--text); border-bottom-color: var(--border); }
 body.dark .backdrop { background: rgba(0,0,0,0.7); }
 body.dark .sheet, body.dark .modal { background: var(--bg-2); color: var(--text); }
+
+/* === Language switch (Arabic ⇄ English) === */
+.lang-switch { display: inline-flex; background: var(--bg-3); border-radius: 999px; padding: 3px; gap: 2px; }
+.lang-opt {
+  border: 0; background: transparent; color: var(--muted);
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  padding: 6px 14px; border-radius: 999px; cursor: pointer; transition: all 140ms ease;
+  white-space: nowrap;
+}
+.lang-opt.active { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(108,43,217,0.3); }
+.lang-switch.compact .lang-opt { padding: 5px 11px; font-size: 12px; }
+body.dark .lang-switch { background: #1f1f24; }
+
+.splash-lang { position: relative; z-index: 5; display: flex; justify-content: center; margin-bottom: 14px; }
+.splash .splash-lang { position: absolute; top: calc(var(--safe-top) + 16px); left: 50%; transform: translateX(-50%); margin: 0; }
+
+/* === English (LTR) layout adjustments === */
+body.lang-en { direction: ltr; }
+body.lang-en .toast { font-family: 'Cairo', system-ui, sans-serif; }
+/* Keep nav + flex rows in natural LTR order; logical props already handle most spacing */
+html[dir="ltr"] .profile-handle,
+html[dir="ltr"] .auth-subtitle,
+html[dir="ltr"] .input,
+html[dir="ltr"] textarea.input { text-align: left; }

@@ -4,10 +4,31 @@
   const DB = window.DB;
   const V = window.Views = {};
 
+  // ===== Language switch (Arabic ⇄ English) =====
+  // Small segmented control. Works anywhere window.I18N is loaded.
+  function langSwitch(opts) {
+    opts = opts || {};
+    const cur = (window.I18N && window.I18N.getLang()) || 'ar';
+    const wrap = el('div', { class: 'lang-switch' + (opts.compact ? ' compact' : '') });
+    [['ar', 'العربية'], ['en', 'English']].forEach(([code, label]) => {
+      const b = el('button', {
+        type: 'button',
+        class: 'lang-opt' + (cur === code ? ' active' : ''),
+        onclick: (e) => {
+          e.stopPropagation();
+          if (window.I18N && window.I18N.getLang() !== code) window.I18N.setLang(code);
+        },
+      }, label);
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
   // ===== Splash =====
   V.splash = () => {
     hideNav();
     return el('section', { class: 'splash' }, [
+      el('div', { class: 'splash-lang' }, [langSwitch({ compact: true })]),
       el('div', { class: 'mark' }, 'T'),
       el('h1', {}, 'Tenth Tone'),
       el('p', {}, 'شارك لحظتك مع العالم'),
@@ -24,6 +45,7 @@
     let showPass = false;
     const root = el('section', { class: 'auth-screen' });
     const error = el('div', { class: 'error-box', hidden: true });
+    root.appendChild(el('div', { class: 'splash-lang', style: { alignSelf: 'flex-end' } }, [langSwitch({ compact: true })]));
     root.appendChild(el('div', { class: 'auth-logo' }, [
       el('div', { class: 'mark' }, 'T'),
       el('h1', {}, 'مرحبًا بعودتك'),
@@ -2457,7 +2479,7 @@
 
     // ── Content & Display ──
     section('المحتوى والعرض', [
-      { icon: 'globe', label: 'اللغة', right: el('span', { class: 'muted' }, 'العربية') },
+      { icon: 'globe', label: 'اللغة', right: langSwitch() },
       { icon: 'sparkle', label: 'الوضع الداكن', right: makeToggle(localStorage.getItem('tt-theme') === 'dark', async (on) => {
         document.body.classList.toggle('dark', on);
         localStorage.setItem('tt-theme', on ? 'dark' : 'light');

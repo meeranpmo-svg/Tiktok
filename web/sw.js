@@ -1,5 +1,5 @@
 /* === Tenth Tone Service Worker === */
-const VERSION = 'tt-v8-security-hardening';
+const VERSION = 'tt-v9-bilingual';
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -14,6 +14,7 @@ const SHELL = [
   '/css/admin.css',
   '/js/data.js',
   '/js/helpers.js',
+  '/js/i18n.js',
   '/js/views.js',
   '/js/app.js',
   '/js/admin.js',

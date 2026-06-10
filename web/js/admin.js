@@ -33,10 +33,26 @@
 
   const me = { name: 'المشرف الرئيسي', role: 'Super Admin', avatar: 'https://i.pravatar.cc/100?u=admin' };
 
+  // Language switch (Arabic ⇄ English) for the admin topbar
+  function admLangSwitch() {
+    const cur = (window.I18N && window.I18N.getLang()) || 'ar';
+    const wrap = el('div', { class: 'lang-switch compact' });
+    [['ar', 'ع'], ['en', 'EN']].forEach(([code, label]) => {
+      wrap.appendChild(el('button', {
+        type: 'button',
+        class: 'lang-opt' + (cur === code ? ' active' : ''),
+        title: code === 'en' ? 'English' : 'العربية',
+        onclick: (e) => { e.stopPropagation(); if (window.I18N && window.I18N.getLang() !== code) window.I18N.setLang(code); },
+      }, label));
+    });
+    return wrap;
+  }
+
   // ===== Login =====
   function viewLogin() {
     const r = el('div', { class: 'adm-login' });
     const card = el('div', { class: 'card' });
+    card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'center', marginBottom: '10px' } }, [admLangSwitch()]));
     card.appendChild(el('div', { class: 'mark' }, 'T'));
     card.appendChild(el('h1', {}, 'لوحة التحكم'));
     card.appendChild(el('p', {}, 'سجّل دخولك للوصول إلى لوحة الإدارة'));
@@ -104,6 +120,7 @@
     top.appendChild(el('button', { class: 'icon-btn', html: icons.menu, onclick: toggleSidebar, style: { display: 'none' }, id: 'sidebar-toggle' }));
     top.appendChild(el('div', { class: 'search' }, [el('input', { placeholder: 'بحث سريع...' })]));
     top.appendChild(el('span', { class: 'spacer' }));
+    top.appendChild(admLangSwitch());
     top.appendChild(el('button', { class: 'icon-btn', html: icons.bell }, [el('span', { class: 'badge' }, '5')]));
     top.appendChild(el('button', { class: 'icon-btn', html: icons.settings, onclick: () => location.hash = '#/settings' }));
     top.appendChild(el('div', { class: 'adm-user' }, [
@@ -1257,6 +1274,8 @@
     root.innerHTML = '';
     try {
       root.appendChild(fn());
+      // Translate the freshly-rendered admin view when English is active
+      try { if (window.I18N) window.I18N.apply(root); } catch (e2) {}
       window.scrollTo(0, 0);
     } catch (e) {
       console.error(e);
@@ -1272,6 +1291,8 @@
   };
 
   window.addEventListener('hashchange', render);
+  // Language switch re-renders the current admin view from its Arabic source
+  window.addEventListener('tt-rerender', render);
   if (document.readyState !== 'loading') render();
   else window.addEventListener('DOMContentLoaded', render);
 })();

@@ -424,6 +424,7 @@ Tiktok/
 │   │   ├── db.js                     ← ALL DB calls (~800 lines, easy to skim)
 │   │   ├── helpers.js                ← el(), esc(), safeUrl(), icons
 │   │   ├── data.js                   ← seed data for offline / fallback UI
+│   │   ├── i18n.js                    ← Arabic⇄English engine (dictionary + DOM translator) — see §14
 │   │   ├── views.js                  ← every screen as a function (V.home, V.map, V.chat, …) — ~2400 lines
 │   │   ├── app.js                    ← router + auth guard
 │   │   ├── admin.js                  ← admin SPA — ~1100 lines
@@ -471,9 +472,69 @@ These were intentionally stubbed pending real third-party signups:
 | **Payments — wallet top-up** | UI shows packages; `self_topup` RPC is locked for security | Stripe / Apple-IAP webhook that verifies receipts and calls `self_topup` with service-role key |
 | **Real push notifications** | Capacitor plugin scaffolded; UI ready | VAPID keys for web push + APNs cert for iOS + Edge Function to dispatch |
 | **Sign in with Apple** | Not implemented | Required by Apple if email/social login is offered. Add `@capacitor-community/apple-sign-in` |
-| **Real translations** | UI is Arabic-only | i18n library + Arabic/English string tables |
 
 When ready to wire any of these, the integration points are clearly marked in `db.js` with `// TODO:` comments.
+
+> **Done since:** English ⇄ Arabic localization is now shipped — see §14.
+
+---
+
+## 14. Internationalization (Arabic ⇄ English)
+
+The app is **authored in Arabic** and English is layered on at runtime by
+`web/js/i18n.js`. There is **no build step and no per-string editing of
+views** — the engine translates the rendered DOM.
+
+### How it works
+1. **Dictionary** — a single `DICT` object maps each Arabic UI label →
+   English. The user-app strings are in the literal; the admin strings are
+   merged in via `Object.assign(DICT, {…})` lower in the same file. ~450
+   entries total.
+2. **Exact-match translation** — after every screen render, and again via a
+   `MutationObserver` on `<body>` for async content (feed, modals, toasts,
+   bottom nav), the engine walks text nodes + `placeholder`/`title`/
+   `aria-label` attributes. It only swaps a string whose **entire trimmed
+   value** is a known key. **This is the safety guarantee:** user-generated
+   content (names, messages, captions) never exactly equals a UI label, so
+   it is structurally impossible to mistranslate it.
+3. **Parametric rules** — a short `RULES` list handles the few dynamic
+   strings with a number/word slot: relative timestamps (`5m ago`),
+   `Send (N)`, `N friends on the map`, `Topped up N coins`.
+4. **Native dialogs** — `window.confirm/prompt/alert` are patched so their
+   messages localize too.
+5. **Direction** — switching language sets `<html dir>` to `rtl`/`ltr`,
+   toggles `body.lang-en`, and dispatches a `tt-rerender` event that both
+   routers (`app.js`, `admin.js`) listen for to re-render the current
+   screen from its Arabic source.
+6. **Persistence** — the choice is stored in `localStorage('tt-lang')` and
+   restored on boot (before first paint) to avoid a flash.
+
+### The switch UI
+- **User app:** segmented `العربية | English` control on the splash, login,
+  and Settings → Language row (`langSwitch()` in `views.js`).
+- **Admin:** `ع | EN` control on the topbar and the pre-login card
+  (`admLangSwitch()` in `admin.js`).
+
+### Adding / changing a translation
+Open `web/js/i18n.js`:
+- To fix or add a label, add/edit an entry in `DICT` — key is the **exact**
+  Arabic string as it appears in the code, value is the English.
+- For a new dynamic pattern (number/word slot), add a `[regex, fn]` pair to
+  `RULES`.
+- After editing, bump `VERSION` in `web/sw.js` so clients pick up the new
+  bundle.
+
+### Adding a third language
+Replace the flat `DICT` with `{ en: {…}, fr: {…} }` keyed by language,
+make `translate()` read `DICT[getLang()]`, and add the language to the
+switch controls. The render/observer/dialog plumbing stays unchanged.
+
+### Gotcha
+Because translation is exact-match, a label that is **built by string
+concatenation at runtime** (e.g. `'منذ ' + n + ' د'`) won't match a static
+dictionary key — those are handled by `RULES` instead. If you add a new
+concatenated UI string, either make it a single literal (so it can live in
+`DICT`) or add a `RULES` entry for it.
 
 ---
 

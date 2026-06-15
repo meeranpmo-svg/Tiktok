@@ -863,6 +863,7 @@
     if (node.nodeType !== 1) return;
     // Skip elements we never want to touch
     if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') return;
+    if (node.getAttribute && node.getAttribute('data-noi18n') === '1') return;
     translateElement(node);
     let child = node.firstChild;
     while (child) { walk(child); child = child.nextSibling; }
@@ -884,6 +885,43 @@
     html.setAttribute('lang', lang === 'en' ? 'en' : 'ar');
     html.setAttribute('dir', lang === 'en' ? 'ltr' : 'rtl');
     document.body.classList.toggle('lang-en', lang === 'en');
+    updateToggleLabel(lang);
+  }
+
+  // ── Floating language toggle button (shown on every page) ──
+  function injectToggle() {
+    if (!document.body || document.getElementById('tt-lang-toggle')) return;
+    const btn = document.createElement('button');
+    btn.id = 'tt-lang-toggle';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Switch language / تبديل اللغة');
+    btn.setAttribute('data-noi18n', '1'); // never auto-translate this button
+    btn.style.cssText = [
+      'position:fixed',
+      'top:calc(env(safe-area-inset-top, 0px) + 10px)',
+      'inset-inline-end:12px',
+      'z-index:2147483000',
+      'display:flex', 'align-items:center', 'gap:6px',
+      'padding:7px 13px', 'border:none', 'border-radius:999px',
+      'background:rgba(108,43,217,.94)', 'color:#fff',
+      'font:700 13px/1 system-ui,-apple-system,"Cairo",sans-serif',
+      'box-shadow:0 3px 12px rgba(0,0,0,.28)', 'cursor:pointer',
+      '-webkit-backdrop-filter:blur(4px)', 'backdrop-filter:blur(4px)',
+    ].join(';');
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleLang();
+    });
+    document.body.appendChild(btn);
+    updateToggleLabel(getLang());
+  }
+
+  function updateToggleLabel(lang) {
+    const btn = document.getElementById('tt-lang-toggle');
+    if (!btn) return;
+    // Label shows the language you'll switch TO.
+    btn.textContent = lang === 'en' ? '🌐 العربية' : '🌐 English';
   }
 
   function setLang(lang) {
@@ -952,6 +990,6 @@
   // Boot
   applyDir(getLang());
   patchDialogs();
-  if (document.body) startObserver();
-  else document.addEventListener('DOMContentLoaded', startObserver);
+  if (document.body) { startObserver(); injectToggle(); }
+  else document.addEventListener('DOMContentLoaded', function () { startObserver(); injectToggle(); });
 })();

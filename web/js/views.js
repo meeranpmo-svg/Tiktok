@@ -1223,7 +1223,9 @@
     root.appendChild(el('div', { class: 'profile-header' }, [
       isMe ? el('button', { class: 'icon-btn', html: icons.menu, onclick: () => go('/settings') }) : el('button', { class: 'icon-btn', html: icons.chevR, onclick: () => back() }),
       el('h1', {}, [u.handle, svg('chevD', { style: { width: '14px', height: '14px' } })]),
-      el('button', { class: 'icon-btn', html: icons.moreV }),
+      isMe
+        ? el('button', { class: 'icon-btn', title: 'المساعدة والدعم', style: { fontWeight: '800', fontSize: '19px' }, onclick: () => { if (window.ttHelp) window.ttHelp(); } }, '؟')
+        : el('button', { class: 'icon-btn', html: icons.moreV }),
     ]));
     root.appendChild(el('div', { class: 'profile-top' }, [
       el('div', { class: 'profile-avatar' }, [Object.assign(document.createElement('img'), { src: u.avatar })]),

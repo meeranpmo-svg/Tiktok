@@ -120,7 +120,7 @@
     btn.setAttribute('aria-label', 'Help / مساعدة');
     btn.innerHTML = '<span style="font-size:16px;font-weight:800">؟</span><span>مساعدة</span>';
     btn.style.cssText = [
-      'position:fixed', 'bottom:calc(env(safe-area-inset-bottom,0px) + 78px)', 'inset-inline-start:12px',
+      'position:fixed', 'bottom:calc(env(safe-area-inset-bottom,0px) + 78px)', 'left:max(14px, calc(50% - 201px))',
       'z-index:2147483000', 'display:flex', 'align-items:center', 'gap:6px',
       'padding:9px 14px', 'border:none', 'border-radius:999px',
       'background:rgba(108,43,217,.95)', 'color:#fff',
@@ -130,7 +130,22 @@
     btn.addEventListener('click', openHelpSheet);
     document.body.appendChild(btn);
     try { if (window.I18N) window.I18N.apply(btn); } catch (e) {}
+    updateHelpVisibility();
   }
+
+  // Hide the floating button on the full-screen feed (it collides with the
+  // video action rail there); the Profile header has a "؟" Help icon for those.
+  function updateHelpVisibility() {
+    const btn = document.getElementById('tt-help-btn');
+    if (!btn) return;
+    const p = parseHash().path;
+    const hide = p === '/' || p === '/home' || p === '/camera' || p.indexOf('/live') === 0;
+    btn.style.display = hide ? 'none' : 'flex';
+  }
+  window.addEventListener('hashchange', updateHelpVisibility);
+
+  // Expose so other screens (e.g. Profile header) can open the support sheet.
+  window.ttHelp = openHelpSheet;
 
   function openHelpSheet() {
     if (document.getElementById('tt-help-sheet')) return;

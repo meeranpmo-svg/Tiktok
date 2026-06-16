@@ -865,6 +865,8 @@
 
     // ── Help/support, location map, report export (added 2026-06-15) ──
     'المساعدة والدعم': 'Help & Support',
+    'مساعدة': 'Help',
+    'كيف يمكننا مساعدتك؟': 'How can we help you?',
     'الدعم عبر واتساب': 'WhatsApp Support',
     'المستخدمون حسب المنطقة': 'Users by region',
     'جاري تحميل الخريطة...': 'Loading map...',

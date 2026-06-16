@@ -107,4 +107,59 @@
   window.addEventListener('tt-rerender', render);
   window.addEventListener('DOMContentLoaded', render);
   if (document.readyState !== 'loading') render();
+
+  /* ── Floating Help button (visible on every screen, opens a support sheet) ── */
+  const SUPPORT_EMAIL = 'support@tenthtone.app';
+  const SUPPORT_WA = '966500000000'; // TODO: replace with the real WhatsApp support number
+
+  function injectHelp() {
+    if (!document.body || document.getElementById('tt-help-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'tt-help-btn';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Help / مساعدة');
+    btn.innerHTML = '<span style="font-size:16px;font-weight:800">؟</span><span>مساعدة</span>';
+    btn.style.cssText = [
+      'position:fixed', 'bottom:calc(env(safe-area-inset-bottom,0px) + 78px)', 'inset-inline-start:12px',
+      'z-index:2147483000', 'display:flex', 'align-items:center', 'gap:6px',
+      'padding:9px 14px', 'border:none', 'border-radius:999px',
+      'background:rgba(108,43,217,.95)', 'color:#fff',
+      'font:700 13px/1 Cairo,system-ui,-apple-system,sans-serif',
+      'box-shadow:0 4px 16px rgba(108,43,217,.45)', 'cursor:pointer',
+    ].join(';');
+    btn.addEventListener('click', openHelpSheet);
+    document.body.appendChild(btn);
+    try { if (window.I18N) window.I18N.apply(btn); } catch (e) {}
+  }
+
+  function openHelpSheet() {
+    if (document.getElementById('tt-help-sheet')) return;
+    const dir = document.documentElement.getAttribute('dir') || 'rtl';
+    const ov = document.createElement('div');
+    ov.id = 'tt-help-sheet';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center';
+    const sheet = document.createElement('div');
+    sheet.dir = dir;
+    sheet.style.cssText = 'background:#fff;width:100%;max-width:480px;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom,0px));font-family:Cairo,system-ui,sans-serif';
+    sheet.innerHTML = '<div style="width:42px;height:4px;background:#ddd;border-radius:2px;margin:0 auto 14px"></div>'
+      + '<h3 style="margin:0 0 12px;font-size:16px;color:#1a1a2e">كيف يمكننا مساعدتك؟</h3>';
+    const item = (label, onClick) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = 'display:block;width:100%;text-align:start;padding:14px;margin:6px 0;border:1px solid #eee;border-radius:12px;background:#fafafa;font:600 14px Cairo,system-ui,sans-serif;color:#1a1a2e;cursor:pointer';
+      b.onclick = () => { onClick(); close(); };
+      return b;
+    };
+    sheet.appendChild(item('الدعم عبر واتساب', () => window.open('https://wa.me/' + SUPPORT_WA + '?text=' + encodeURIComponent('مرحبًا، أحتاج مساعدة في تطبيق Tenth Tone'), '_blank')));
+    sheet.appendChild(item('تواصل معنا', () => { window.location.href = 'mailto:' + SUPPORT_EMAIL; }));
+    sheet.appendChild(item('الإبلاغ عن مشكلة', () => { window.location.href = 'mailto:' + SUPPORT_EMAIL + '?subject=' + encodeURIComponent('بلاغ عن مشكلة — Tenth Tone'); }));
+    ov.appendChild(sheet);
+    document.body.appendChild(ov);
+    try { if (window.I18N) window.I18N.apply(ov); } catch (e) {}
+    function close() { ov.remove(); }
+    ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  }
+
+  if (document.body) injectHelp();
+  else window.addEventListener('DOMContentLoaded', injectHelp);
 })();

@@ -5,17 +5,30 @@
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
+      let updatePending = false;
       // Listen for new SW available
       reg.addEventListener('updatefound', () => {
         const sw = reg.installing;
         if (!sw) return;
         sw.addEventListener('statechange', () => {
           if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-            // A new version is available — auto-skip-waiting on next reload
+            // A new version is ready and an old one is still controlling this
+            // page → activate it immediately and flag for a one-time reload.
+            updatePending = true;
             sw.postMessage('SKIP_WAITING');
           }
         });
       });
+      // When the new SW takes control, reload ONCE so fresh assets (logo,
+      // translations, etc.) apply without needing a manual hard-refresh.
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing || !updatePending) return;
+        refreshing = true;
+        window.location.reload();
+      });
+      // Proactively check for an update on every load.
+      try { reg.update(); } catch (e) {}
     }).catch((err) => console.warn('SW register failed:', err));
   });
 

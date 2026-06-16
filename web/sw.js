@@ -1,5 +1,5 @@
 /* === Tenth Tone Service Worker === */
-const VERSION = 'tt-v12-logo-help-reports';
+const VERSION = 'tt-v13-auto-update';
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 

@@ -798,6 +798,70 @@
     'جميل جدًا 🔥': 'So beautiful 🔥',
     'تابعتك من زمان': "I've been following you for a while",
     'أرسلت لك هدية 🌹': 'Sent you a gift 🌹',
+
+    // ── Demo/seed data: names (transliterated) (added 2026-06-15) ──
+    'أحمد': 'Ahmed', 'احمد': 'Ahmed', 'محمد': 'Mohammed', 'سارة': 'Sara',
+    'فاطمة': 'Fatima', 'علي': 'Ali', 'يوسف': 'Yousef', 'خالد': 'Khalid',
+    'نورة': 'Noura', 'ريم': 'Reem', 'عبدالله': 'Abdullah', 'مريم': 'Maryam',
+    'سلمان': 'Salman', 'ليلى': 'Layla', 'هند': 'Hind', 'زياد': 'Ziad', 'منى': 'Mona',
+
+    // ── Demo/seed data: bios ──
+    'صانع محتوى ✨ | الرياض': 'Content creator ✨ | Riyadh',
+    'كرة قدم ⚽ | شغف ال يتوقف': "Football ⚽ | A passion that never stops",
+    'مدونة طعام 🍰': 'Food blog 🍰',
+    'مصمم رسوميات • 🎨': 'Graphic designer • 🎨',
+    'مهندس برمجيات 💻': 'Software engineer 💻',
+    'محبة للسفر 🌍': 'Travel lover 🌍',
+    'الحياة جميلة 💫': 'Life is beautiful 💫',
+    'مغني وعازف عود 🎶': 'Singer & oud player 🎶',
+    'نبذة قصيرة عنك ✨': 'A short bio about you ✨',
+
+    // ── Demo/seed data: video captions ──
+    'يوم جميل في الرياض 🌅 #حياتنا #الرياض': 'A beautiful day in Riyadh 🌅 #OurLife #Riyadh',
+    'وصفتي المفضلة 🍰 جربوها وأخبروني! #طبخ': 'My favorite recipe 🍰 try it and tell me! #Cooking',
+    'تدريب اليوم 💪 #كرة_قدم #هدف': "Today's training 💪 #Football #Goal",
+    'رحلة العمر 🌍 #سفر #ذكريات': 'Trip of a lifetime 🌍 #Travel #Memories',
+    'لحن جديد 🎶 #موسيقى': 'A new tune 🎶 #Music',
+    'تجربتي مع الكتب 📚 #قراءة': 'My experience with books 📚 #Reading',
+    'ضحكة الصباح ☀️ #يوم_جديد': 'Morning laugh ☀️ #NewDay',
+    'أناقة بسيطة 👜 #موضة': 'Simple elegance 👜 #Fashion',
+    'القهوة قبل أي شيء ☕': 'Coffee before anything ☕',
+    'مغامرة ال تُنسى ⛰️ #جبال': 'An unforgettable adventure ⛰️ #Mountains',
+    'تصوير ليلي ✨ #تصوير': 'Night photography ✨ #Photography',
+    'لحظة هادئة 🌊 #بحر': 'A calm moment 🌊 #Sea',
+
+    // ── Demo/seed data: sounds ──
+    'الأصلي -': 'Original -', 'هزّة -': 'Shake -',
+    'صوت من ذكرى -': 'A sound from a memory -', 'خفقات -': 'Heartbeats -',
+
+    // ── Demo/seed data: comments & chat ──
+    'محتوى رائع': 'Great content', 'تتابع؟': 'Follow back?',
+    'احب فيديوهاتك': 'I love your videos', 'شكراً للمشاركة': 'Thanks for sharing',
+    'استمر 💪': 'Keep it up 💪', 'خرافي': 'Amazing', 'يا سلام!': 'Wow!',
+    'أعجبني كثيراً': 'I really liked it', 'دقيقة': 'a minute', 'أسبوع': 'a week',
+    'شكراً!': 'Thanks!', 'تمام نلتقي بكره': 'OK, see you tomorrow',
+    'هل تابعت الفيديو؟': 'Did you watch the video?', 'ضحكتني والله': 'You really made me laugh',
+    'تمت العملية': 'Transaction completed', 'إن شاء الله': 'God willing',
+    'وانت من اهله': 'Same to you', 'هلا والله، كيفك؟': 'Hey! How are you?',
+    'تمام والله، انت كيفك؟': "I'm good, how about you?", 'الحمدلله بخير 😊': "I'm doing well 😊",
+    'شفت آخر فيديو رفعته؟': 'Did you see the last video I posted?',
+    'إيه شفته! خرافي 🔥': 'Yeah, I saw it! Amazing 🔥',
+    'علّق: "شيء جميل!"': 'commented: "Beautiful!"',
+    'و 23 آخرون أعجبوا بالتعليق': 'and 23 others liked the comment',
+    'تم تحديث الشروط والأحكام': 'Terms and conditions have been updated',
+
+    // ── Demo/seed data: wallet, gifts, hashtags, live ──
+    'هدية من': 'Gift from', 'إرسال هدية لـ': 'Send a gift to',
+    'شحن محفظة': 'Top up wallet', 'بطاقة بنكية': 'Bank card',
+    'سحب أرباح': 'Withdraw earnings', 'حساب بنكي': 'Bank account',
+    'وردة 🌹': 'Rose 🌹', 'قلب 💖': 'Heart 💖', 'تاج 👑': 'Crown 👑', 'نجمة ⭐': 'Star ⭐',
+    'وردة': 'Rose', 'نجمة': 'Star', 'كأس': 'Trophy', 'تاج': 'Crown',
+    'صاروخ': 'Rocket', 'يخت': 'Yacht', 'سيارة': 'Car',
+    '#رمضان': '#Ramadan', '#الرياض': '#Riyadh', '#طبخات': '#Recipes',
+    '#كرة_قدم': '#Football', '#قراءة': '#Reading',
+    'دردشة سريعة': 'Quick chat', 'جلسة موسيقى 🎶': 'Music session 🎶',
+    'اسئلوني!': 'Ask me anything!', 'تجربة وصفة': 'Trying a recipe',
+    'جولة في الرياض': 'A tour in Riyadh', 'لعبة جماعية': 'Group game',
   });
 
   // ── Parametric rules: whole-text-node patterns with a number/word slot ──
@@ -805,6 +869,12 @@
   const RULES = [
     [/^(\d+) تعليق$/, (m) => `${m[1]} comment${m[1] === '1' ? '' : 's'}`],
     [/^عرض (\d+)-(\d+) من (\d+)$/, (m) => `Showing ${m[1]}-${m[2]} of ${m[3]}`],
+    [/^([\d.]+\s*[MK]?) فيديو$/, (m) => `${m[1]} videos`],
+    [/^اليوم (\d{1,2}:\d{2})$/, (m) => `Today ${m[1]}`],
+    [/^أمس (\d{1,2}:\d{2})$/, (m) => `Yesterday ${m[1]}`],
+    [/^علّق: "([\s\S]*)"$/, (m) => `commented: "${m[1]}"`],
+    [/^حذف حساب (.+) نهائيًا؟ هذا الإجراء غير قابل للتراجع\.\nسيتم حذف جميع الفيديوهات والمحفظة والتعليقات\.$/,
+      (m) => `Delete account ${m[1]} permanently? This action cannot be undone.\nAll videos, wallet and comments will be deleted.`],
     [/^منذ (\d+) د$/, (m) => `${m[1]}m ago`],
     [/^منذ (\d+) س$/, (m) => `${m[1]}h ago`],
     [/^منذ (\d+) يوم$/, (m) => `${m[1]}d ago`],

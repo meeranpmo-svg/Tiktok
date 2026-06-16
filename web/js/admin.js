@@ -53,7 +53,7 @@
     const r = el('div', { class: 'adm-login' });
     const card = el('div', { class: 'card' });
     card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'center', marginBottom: '10px' } }, [admLangSwitch()]));
-    card.appendChild(el('div', { class: 'mark' }, 'T'));
+    card.appendChild(el('div', { class: 'mark', style: { background: 'transparent' } }, [Object.assign(document.createElement('img'), { src: '/icons/logo-mark.svg', alt: 'Tenth Tone', style: 'width:100%;height:100%;object-fit:contain' })]));
     card.appendChild(el('h1', {}, 'لوحة التحكم'));
     card.appendChild(el('p', {}, 'سجّل دخولك للوصول إلى لوحة الإدارة'));
     const inputStyle = { width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '12px', fontSize: '14px', outline: 0 };
@@ -88,7 +88,7 @@
     // sidebar
     const side = el('aside', { class: 'adm-sidebar' });
     side.appendChild(el('div', { class: 'adm-brand' }, [
-      el('div', { class: 'mark' }, 'T'),
+      el('div', { class: 'mark', style: { background: 'transparent' } }, [Object.assign(document.createElement('img'), { src: '/icons/logo-mark.svg', alt: 'Tenth Tone', style: 'width:100%;height:100%;object-fit:contain' })]),
       el('div', {}, [el('div', { class: 'name' }, 'Tenth Tone'), el('div', { class: 'sub' }, 'Admin Panel')]),
     ]));
     // Back-to-app link (so admins can hop back to the user-facing PWA)
@@ -883,10 +883,58 @@
   // ===== Analytics =====
   function viewAnalytics() {
     const page = el('div', { class: 'adm-page' });
+    // Report data (shared by the on-screen cards and the Excel/PDF exports)
+    const REPORT = {
+      stats: [['مستخدمون نشطون يوميًا', '128.4K', '+12.3%'], ['مستخدمون نشطون شهريًا', '2.8M', '+8.1%'], ['متوسط الجلسة', '24:38', '+3min'], ['معدل البقاء (DAY30)', '38.2%', '+1.4%']],
+      engagement: [['إعجاب', 4200000], ['تعليق', 1800000], ['مشاركة', 950000], ['حفظ', 620000], ['متابعة', 410000]],
+      geo: [['الرياض', 38], ['جدة', 24], ['الدمام', 15], ['مكة', 11], ['المدينة', 7], ['أخرى', 5]],
+    };
+    const periodSel = el('select', { style: { background: 'var(--surface)', border: '1px solid var(--border)', padding: '10px', borderRadius: '10px' } }, [el('option', {}, 'آخر 7 أيام'), el('option', {}, 'آخر 30 يوم'), el('option', {}, 'آخر 90 يوم')]);
+
+    function exportExcel() {
+      const period = periodSel.value;
+      const lines = [];
+      lines.push(['تقرير الإحصائيات — Tenth Tone']);
+      lines.push(['الفترة', period]);
+      lines.push([]);
+      lines.push(['المؤشر', 'القيمة', 'التغير']);
+      REPORT.stats.forEach(r => lines.push(r));
+      lines.push([]);
+      lines.push(['التفاعل', 'العدد']);
+      REPORT.engagement.forEach(r => lines.push(r));
+      lines.push([]);
+      lines.push(['المنطقة', 'النسبة %']);
+      REPORT.geo.forEach(r => lines.push(r));
+      const csv = '﻿' + lines.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'tenth-tone-report.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast('تم تصدير Excel');
+    }
+
+    function exportPDF() {
+      const period = periodSel.value;
+      const row = (cells, tag = 'td') => '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+      const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير الإحصائيات</title>
+        <style>body{font-family:system-ui,'Cairo',sans-serif;padding:28px;color:#1a1a2e}h1{color:#6c2bd9;margin:0 0 4px}.sub{color:#888;margin:0 0 18px}h2{margin:22px 0 8px;font-size:15px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #e3e3ef;padding:7px 10px;text-align:right}th{background:#f4f0fb}</style></head><body>
+        <h1>تقرير الإحصائيات — Tenth Tone</h1><p class="sub">الفترة: ${period}</p>
+        <h2>المؤشرات الرئيسية</h2><table>${row(['المؤشر', 'القيمة', 'التغير'], 'th')}${REPORT.stats.map(r => row(r)).join('')}</table>
+        <h2>التفاعل</h2><table>${row(['التفاعل', 'العدد'], 'th')}${REPORT.engagement.map(r => row([r[0], fmt(r[1])])).join('')}</table>
+        <h2>التوزيع الجغرافي</h2><table>${row(['المنطقة', 'النسبة %'], 'th')}${REPORT.geo.map(r => row([r[0], r[1] + '%'])).join('')}</table>
+        <script>window.onload=function(){window.print();}<\/script></body></html>`;
+      const w = window.open('', '_blank');
+      if (!w) { toast('السماح بالنوافذ المنبثقة مطلوب'); return; }
+      w.document.open(); w.document.write(html); w.document.close();
+      toast('تم تجهيز PDF — اختر حفظ كـ PDF');
+    }
+
     page.appendChild(pageHeader('الإحصائيات والتقارير', 'تتبع التفاعل واستخراج التقارير', [
-      el('button', { class: 'btn btn-secondary' }, [svg('download'), document.createTextNode(' Excel')]),
-      el('button', { class: 'btn btn-secondary' }, [svg('download'), document.createTextNode(' PDF')]),
-      el('select', { style: { background: 'var(--surface)', border: '1px solid var(--border)', padding: '10px', borderRadius: '10px' } }, [el('option', {}, 'آخر 7 أيام'), el('option', {}, 'آخر 30 يوم'), el('option', {}, 'آخر 90 يوم')]),
+      el('button', { class: 'btn btn-secondary', onclick: exportExcel }, [svg('download'), document.createTextNode(' Excel')]),
+      el('button', { class: 'btn btn-secondary', onclick: exportPDF }, [svg('download'), document.createTextNode(' PDF')]),
+      periodSel,
     ]));
     const stats = el('div', { class: 'stats-grid' });
     stats.appendChild(statCard({ label: 'مستخدمون نشطون يوميًا', value: '128.4K', delta: '+12.3%', icon: 'user', tone: 'primary' }));
@@ -1139,6 +1187,58 @@
   function viewLocation() {
     const page = el('div', { class: 'adm-page' });
     page.appendChild(pageHeader('الموقع الجغرافي', 'إدارة ميزة مشاركة الموقع ومتابعة المحتوى الشائع'));
+
+    // ── Live map of users by region (Leaflet + free OpenStreetMap tiles) ──
+    const mapCard = el('div', { class: 'card', style: { marginBottom: '14px' } });
+    mapCard.appendChild(el('div', { class: 'card-h' }, [el('h3', {}, 'المستخدمون حسب المنطقة')]));
+    const mapEl = el('div', { style: { height: '380px', borderRadius: '12px', overflow: 'hidden', background: 'var(--bg)' } });
+    mapEl.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted)">جاري تحميل الخريطة...</div>';
+    mapCard.appendChild(mapEl);
+    page.appendChild(mapCard);
+
+    const CITIES = [
+      { n: 'الرياض', lat: 24.71, lng: 46.68, pct: 38 },
+      { n: 'جدة', lat: 21.49, lng: 39.18, pct: 24 },
+      { n: 'الدمام', lat: 26.43, lng: 50.10, pct: 15 },
+      { n: 'مكة', lat: 21.39, lng: 39.86, pct: 11 },
+      { n: 'المدينة', lat: 24.47, lng: 39.61, pct: 7 },
+    ];
+    function initMap() {
+      try {
+        mapEl.innerHTML = '';
+        const map = window.L.map(mapEl, { scrollWheelZoom: false }).setView([24.0, 45.0], 5);
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap', maxZoom: 18,
+        }).addTo(map);
+        CITIES.forEach(c => {
+          window.L.circleMarker([c.lat, c.lng], {
+            radius: 8 + c.pct, color: '#6c2bd9', fillColor: '#7B3FB3', fillOpacity: 0.45, weight: 2,
+          }).addTo(map).bindPopup('<b>' + c.n + '</b><br>' + c.pct + '% من المستخدمين');
+        });
+        setTimeout(() => map.invalidateSize(), 200);
+      } catch (e) { mapEl.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--danger)">تعذر تحميل الخريطة</div>'; }
+    }
+    function ensureLeaflet() {
+      if (window.L) { initMap(); return; }
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css'; link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+      let s = document.getElementById('leaflet-js');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'leaflet-js'; s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        s.onload = initMap;
+        s.onerror = () => { mapEl.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--danger)">تعذر تحميل الخريطة</div>'; };
+        document.head.appendChild(s);
+      } else {
+        const iv = setInterval(() => { if (window.L) { clearInterval(iv); initMap(); } }, 150);
+      }
+    }
+    setTimeout(ensureLeaflet, 0); // run after the page node is inserted into the DOM
+
     const grid = el('div', { class: 'grid-2' });
     const a = el('div', { class: 'card' });
     a.appendChild(el('div', { class: 'card-h' }, [el('h3', {}, 'إعدادات المشاركة')]));

@@ -1,5 +1,5 @@
 /* === Tenth Tone Service Worker === */
-const VERSION = 'tt-v11-i18n-complete';
+const VERSION = 'tt-v12-logo-help-reports';
 const PRECACHE = `${VERSION}-precache`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -18,6 +18,7 @@ const SHELL = [
   '/js/views.js',
   '/js/app.js',
   '/js/admin.js',
+  '/icons/logo-mark.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/apple-touch-icon.png',

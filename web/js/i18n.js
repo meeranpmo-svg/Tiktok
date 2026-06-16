@@ -862,6 +862,16 @@
     'دردشة سريعة': 'Quick chat', 'جلسة موسيقى 🎶': 'Music session 🎶',
     'اسئلوني!': 'Ask me anything!', 'تجربة وصفة': 'Trying a recipe',
     'جولة في الرياض': 'A tour in Riyadh', 'لعبة جماعية': 'Group game',
+
+    // ── Help/support, location map, report export (added 2026-06-15) ──
+    'المساعدة والدعم': 'Help & Support',
+    'الدعم عبر واتساب': 'WhatsApp Support',
+    'المستخدمون حسب المنطقة': 'Users by region',
+    'جاري تحميل الخريطة...': 'Loading map...',
+    'تعذر تحميل الخريطة': 'Could not load the map',
+    'تم تصدير Excel': 'Excel exported',
+    'تم تجهيز PDF — اختر حفظ كـ PDF': 'PDF ready — choose Save as PDF',
+    'السماح بالنوافذ المنبثقة مطلوب': 'Pop-ups must be allowed',
   });
 
   // ── Parametric rules: whole-text-node patterns with a number/word slot ──
@@ -873,6 +883,7 @@
     [/^اليوم (\d{1,2}:\d{2})$/, (m) => `Today ${m[1]}`],
     [/^أمس (\d{1,2}:\d{2})$/, (m) => `Yesterday ${m[1]}`],
     [/^علّق: "([\s\S]*)"$/, (m) => `commented: "${m[1]}"`],
+    [/^(\d+)% من المستخدمين$/, (m) => `${m[1]}% of users`],
     [/^حذف حساب (.+) نهائيًا؟ هذا الإجراء غير قابل للتراجع\.\nسيتم حذف جميع الفيديوهات والمحفظة والتعليقات\.$/,
       (m) => `Delete account ${m[1]} permanently? This action cannot be undone.\nAll videos, wallet and comments will be deleted.`],
     [/^منذ (\d+) د$/, (m) => `${m[1]}m ago`],

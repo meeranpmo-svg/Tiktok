@@ -29,7 +29,7 @@
     hideNav();
     return el('section', { class: 'splash' }, [
       el('div', { class: 'splash-lang' }, [langSwitch({ compact: true })]),
-      el('div', { class: 'mark' }, 'T'),
+      el('div', { class: 'mark', style: { background: 'transparent', border: 'none', backdropFilter: 'none' } }, [Object.assign(document.createElement('img'), { src: '/icons/logo-mark.svg', alt: 'Tenth Tone', style: 'width:100%;height:100%;object-fit:contain' })]),
       el('h1', {}, 'Tenth Tone'),
       el('p', {}, 'شارك لحظتك مع العالم'),
       el('div', { class: 'actions' }, [
@@ -47,7 +47,7 @@
     const error = el('div', { class: 'error-box', hidden: true });
     root.appendChild(el('div', { class: 'splash-lang', style: { alignSelf: 'flex-end' } }, [langSwitch({ compact: true })]));
     root.appendChild(el('div', { class: 'auth-logo' }, [
-      el('div', { class: 'mark' }, 'T'),
+      el('div', { class: 'mark', style: { background: 'transparent', border: 'none' } }, [Object.assign(document.createElement('img'), { src: '/icons/logo-mark.svg', alt: 'Tenth Tone', style: 'width:100%;height:100%;object-fit:contain' })]),
       el('h1', {}, 'مرحبًا بعودتك'),
       el('p', {}, 'سجّل دخولك للمتابعة'),
     ]));
@@ -2499,10 +2499,13 @@
       }) },
     ]);
 
-    // ── Support & Legal ──
-    section('الدعم والقانوني', [
-      { icon: 'flag', label: 'الإبلاغ عن مشكلة' },
-      { icon: 'mail', label: 'تواصل معنا', onclick: () => window.location.href = 'mailto:support@tenthtone.app' },
+    // ── Help & Support ──
+    const SUPPORT_EMAIL = 'support@tenthtone.app';
+    const SUPPORT_WA = '966500000000'; // TODO: replace with the real WhatsApp support number
+    section('المساعدة والدعم', [
+      { icon: 'whatsapp', label: 'الدعم عبر واتساب', onclick: () => window.open('https://wa.me/' + SUPPORT_WA + '?text=' + encodeURIComponent('مرحبًا، أحتاج مساعدة في تطبيق Tenth Tone'), '_blank') },
+      { icon: 'mail', label: 'تواصل معنا', onclick: () => window.location.href = 'mailto:' + SUPPORT_EMAIL },
+      { icon: 'flag', label: 'الإبلاغ عن مشكلة', onclick: () => window.location.href = 'mailto:' + SUPPORT_EMAIL + '?subject=' + encodeURIComponent('بلاغ عن مشكلة — Tenth Tone') },
       { icon: 'globe', label: 'الشروط وسياسة الخصوصية', onclick: () => window.open('https://github.com/meeranpmo-svg/Tiktok/blob/main/PRIVACY.md', '_blank') },
       { icon: 'sparkle', label: 'حول التطبيق', right: el('span', { class: 'muted' }, 'الإصدار 1.0.0') },
     ]);
